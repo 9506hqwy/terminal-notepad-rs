@@ -15,17 +15,15 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Check Format
-      if: matrix.os == 'ubuntu-latest'
       run: cargo fmt --all --check
 
     - name: Check Lint
-      if: matrix.os == 'ubuntu-latest'
       run: |
         cargo clippy --fix
         git diff --exit-code --quiet

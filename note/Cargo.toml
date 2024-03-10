@@ -1,6 +1,5 @@
 [package]
-name = "example"
-keywords = ["sample"]
+name = "note"
 # https://crates.io/category_slugs
 categories = ["development-tools"]
 
@@ -11,5 +10,14 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
-[lib]
-crate-type = ["cdylib", "lib", "staticlib"]
+[dependencies]
+unicode-width = "0.1.11"
+
+[dependencies.windows]
+version = "0.54"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+]
