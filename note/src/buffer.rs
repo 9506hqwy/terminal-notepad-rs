@@ -59,9 +59,8 @@ impl Buffer {
     }
 
     pub fn delete_char<P: Coordinates>(&mut self, at: &P) {
-        // FIXEDME: x == 1
         if let Some(row) = self.rows.get_mut(at.y()) {
-            if at.x() <= row.len() {
+            if 0 < at.x() && at.x() <= row.len() {
                 self.cached = true;
                 row.remove(at.x() - 1);
             }
