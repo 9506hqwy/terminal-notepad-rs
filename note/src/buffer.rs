@@ -101,9 +101,12 @@ impl Buffer {
     }
 
     pub fn rfind_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
-        // FIXEDME: when current is last new line, find start point is start of last line.
         let rkeyword = keyword.chars().rev().collect::<String>();
-        let mut skip_x = at.x();
+        let mut skip_x = if at.y() < self.rows() {
+            at.x()
+        } else {
+            usize::MAX
+        };
         for (y, c) in self.rows.iter().enumerate().take(at.y() + 1).rev() {
             let taken = if skip_x == usize::MAX {
                 c.len()
@@ -585,10 +588,9 @@ mod tests {
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
 
-        let _at = buf.rfind_at(&(0, 3), "bc");
+        let at = buf.rfind_at(&(0, 3), "bc");
 
-        // FIXEDME:
-        //assert_eq!(Some((1, 2)), at);
+        assert_eq!(Some((1, 2)), at);
     }
 
     #[test]
