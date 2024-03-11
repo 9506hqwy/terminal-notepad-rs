@@ -138,7 +138,10 @@ impl<T: Terminal> Editor<T> {
             (KeyEvent::BackSpace, _) => self.delete_char(),
             (KeyEvent::Enter, _) => self.enter(),
             (KeyEvent::End, _) => self.cursor.move_to_xmax(&self.content),
-            (KeyEvent::PageUp, _) => self.cursor.move_up_screen(&self.content, &self.screen),
+            (KeyEvent::PageUp, _) => {
+                self.screen_modified = self.screen.move_up();
+                self.cursor.move_up_screen(&self.content, &self.screen)
+            }
             (KeyEvent::PageDown, _) => self.cursor.move_down_screen(&self.content, &self.screen),
             (KeyEvent::Home, _) => self.cursor.move_to_x0(),
             (KeyEvent::ArrowLeft, _) => self.cursor.move_left(&self.content),

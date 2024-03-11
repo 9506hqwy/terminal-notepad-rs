@@ -93,6 +93,19 @@ impl Screen {
         self.left0
     }
 
+    /// Move up a height.
+    pub fn move_up(&mut self) -> bool {
+        let cur = self.clone();
+
+        self.top0 = if self.height < self.top0 {
+            self.top0 - self.height
+        } else {
+            0
+        };
+
+        cur != *self
+    }
+
     /// Returns the coordinates index of this screen right.
     pub fn right(&self) -> usize {
         self.left0 + (self.width - 1)
@@ -321,6 +334,33 @@ mod tests {
         assert!(!moved);
         assert_eq!(0, screen.left());
         assert_eq!(0, screen.top());
+    }
+
+    #[test]
+    fn screen_move_up() {
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let mut screen = Screen::current(&null).unwrap();
+        screen.top0 = 1;
+
+        let moved = screen.move_up();
+
+        assert_eq!(0, screen.left());
+        assert_eq!(0, screen.top());
+        assert!(moved);
+    }
+
+    #[test]
+    fn screen_move_up_yunderflow() {
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let mut screen = Screen::current(&null).unwrap();
+
+        let moved = screen.move_up();
+
+        assert_eq!(0, screen.left());
+        assert_eq!(0, screen.top());
+        assert!(!moved);
     }
 
     // -------------------------------------------------------------------------------------------
