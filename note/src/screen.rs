@@ -147,7 +147,7 @@ pub struct StatusBar {
 impl StatusBar {
     pub fn new(screen: &Screen, filename: Option<&str>) -> Self {
         StatusBar {
-            y0: screen.bottom() + 1,
+            y0: screen.height(),
             width: screen.width(),
             filename: filename.map(|f| f.to_string()),
         }
@@ -184,7 +184,7 @@ pub struct MessageBar {
 impl MessageBar {
     pub fn new(screen: &Screen, message: &str) -> Self {
         MessageBar {
-            y0: screen.bottom() + 2,
+            y0: screen.height() + 1,
             width: screen.width(),
             message: Row::from(message.chars().collect::<Vec<char>>()),
         }

@@ -2,7 +2,7 @@ use crate::buffer::{Buffer, Row};
 use crate::cursor::{Coordinates, Cursor};
 use crate::error::Error;
 use crate::key_event::{KeyEvent, KeyModifier};
-use crate::screen::{MessageBar, Screen};
+use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
 
 pub trait Prompt<T: Terminal> {
@@ -162,6 +162,7 @@ pub struct FindKeyword<'a, T: Terminal> {
     message: String,
     content: &'a Buffer,
     screen: &'a mut Screen,
+    status: &'a mut StatusBar,
     terminal: &'a mut T,
     current: &'a mut Cursor,
     source: Cursor,
@@ -218,6 +219,7 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
         cursor: &'a mut Cursor,
         content: &'a Buffer,
         screen: &'a mut Screen,
+        status: &'a mut StatusBar,
         terminal: &'a mut T,
     ) -> Self {
         let source = cursor.clone();
@@ -225,6 +227,7 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
             message: message.to_string(),
             content,
             screen,
+            status,
             terminal,
             current: cursor,
             source,
@@ -245,6 +248,7 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
         self.screen.fit(self.content, &render);
         self.screen.clear(self.terminal)?;
         self.screen.draw(self.content, self.terminal)?;
+        self.status.draw(self.current, self.terminal)?;
         Ok(())
     }
 

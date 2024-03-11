@@ -106,6 +106,7 @@ impl<T: Terminal> Editor<T> {
 
     pub fn find(&mut self) -> Result<bool, Error> {
         self.screen_modified = true;
+        self.status_modified = true;
 
         let ret;
         let moved;
@@ -116,6 +117,7 @@ impl<T: Terminal> Editor<T> {
                 &mut self.cursor,
                 &self.content,
                 &mut self.screen,
+                &mut self.status,
                 &mut self.terminal,
             );
 
@@ -134,6 +136,7 @@ impl<T: Terminal> Editor<T> {
     pub fn handle_events(&mut self) -> Result<bool, Error> {
         self.content_modified = false;
         self.screen_modified = false;
+        self.status_modified = false;
         self.cursor_modified = match T::read_key_timeout()? {
             (KeyEvent::BackSpace, _) => self.delete_char(),
             (KeyEvent::Enter, _) => self.enter(),
