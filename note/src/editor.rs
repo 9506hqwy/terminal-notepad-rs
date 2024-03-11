@@ -142,7 +142,10 @@ impl<T: Terminal> Editor<T> {
                 self.screen_modified = self.screen.move_up();
                 self.cursor.move_up_screen(&self.content, &self.screen)
             }
-            (KeyEvent::PageDown, _) => self.cursor.move_down_screen(&self.content, &self.screen),
+            (KeyEvent::PageDown, _) => {
+                self.screen_modified = self.screen.move_down(&self.content);
+                self.cursor.move_down_screen(&self.content, &self.screen)
+            }
             (KeyEvent::Home, _) => self.cursor.move_to_x0(),
             (KeyEvent::ArrowLeft, _) => self.cursor.move_left(&self.content),
             (KeyEvent::ArrowUp, _) => self.cursor.move_up(&self.content),

@@ -93,6 +93,20 @@ impl Screen {
         self.left0
     }
 
+    /// Move down a height.
+    pub fn move_down(&mut self, content: &Buffer) -> bool {
+        let cur = self.clone();
+
+        if self.height < content.rows() {
+            self.top0 += self.height;
+            if content.rows() < self.bottom() {
+                self.top0 = content.rows() - (self.height - 1);
+            }
+        }
+
+        cur != *self
+    }
+
     /// Move up a height.
     pub fn move_up(&mut self) -> bool {
         let cur = self.clone();
@@ -334,6 +348,41 @@ mod tests {
         assert!(!moved);
         assert_eq!(0, screen.left());
         assert_eq!(0, screen.top());
+    }
+
+    #[test]
+    fn screen_move_down() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.insert_row(&(0, 1), &['b']);
+
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let mut screen = Screen::current(&null).unwrap();
+
+        let moved = screen.move_down(&buf);
+
+        assert_eq!(0, screen.left());
+        assert_eq!(1, screen.top());
+        assert!(moved);
+    }
+
+    #[test]
+    fn screen_move_down_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.insert_row(&(0, 1), &['b']);
+
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let mut screen = Screen::current(&null).unwrap();
+        screen.top0 = 2;
+
+        let moved = screen.move_down(&buf);
+
+        assert_eq!(0, screen.left());
+        assert_eq!(2, screen.top());
+        assert!(!moved);
     }
 
     #[test]

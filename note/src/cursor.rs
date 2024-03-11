@@ -1,8 +1,5 @@
 use crate::buffer::Buffer;
 use crate::screen::Screen;
-use std::cmp::min;
-
-// FIXEDME: move_down_screen
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Cursor {
@@ -32,11 +29,12 @@ impl Cursor {
         cur != *self
     }
 
+    /// Move down a screen height.
     pub fn move_down_screen(&mut self, content: &Buffer, screen: &Screen) -> bool {
         let cur = self.clone();
 
-        let next0 = screen.bottom() + screen.height() - 1;
-        self.y0 = min(next0, content.rows());
+        self.y0 += screen.height();
+        self.move_to_ymax_ifoverflow(content);
         self.move_to_xmax_ifoverflow(content);
 
         cur != *self
@@ -262,6 +260,60 @@ mod tests {
 
         let mut cur = Cursor::from((0, 2));
         let moved = cur.move_down(&buf);
+
+        assert_eq!((0, 2), cur.as_coordinates());
+        assert!(!moved);
+    }
+
+    #[test]
+    fn move_down_screen() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.insert_row(&(0, 1), &['b']);
+
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let screen = Screen::current(&null).unwrap();
+
+        let mut cur = Cursor::from((0, 0));
+
+        let moved = cur.move_down_screen(&buf, &screen);
+
+        assert_eq!((0, 1), cur.as_coordinates());
+        assert!(moved);
+    }
+
+    #[test]
+    fn move_down_screen_at_end() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.insert_row(&(0, 1), &['b']);
+
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let screen = Screen::current(&null).unwrap();
+
+        let mut cur = Cursor::from((0, 1));
+
+        let moved = cur.move_down_screen(&buf, &screen);
+
+        assert_eq!((0, 2), cur.as_coordinates());
+        assert!(moved);
+    }
+
+    #[test]
+    fn move_down_screen_at_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.insert_row(&(0, 1), &['b']);
+
+        let mut null = terminal::Null::default();
+        null.set_screen_size(1, 3);
+        let screen = Screen::current(&null).unwrap();
+
+        let mut cur = Cursor::from((0, 2));
+
+        let moved = cur.move_down_screen(&buf, &screen);
 
         assert_eq!((0, 2), cur.as_coordinates());
         assert!(!moved);
