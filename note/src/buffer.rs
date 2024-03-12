@@ -279,6 +279,10 @@ impl Row {
         Row::from(self.column.split_off(at))
     }
 
+    pub fn to_string_at(&self, at: usize) -> String {
+        self.column.iter().skip(at).collect()
+    }
+
     pub fn truncate_width(&mut self, max_width: usize) -> usize {
         for index in 0..self.column.len() {
             if max_width < self.width_range(0..index + 1) {
@@ -343,10 +347,6 @@ impl Row {
         }
 
         render
-    }
-
-    fn to_string_at(&self, at: usize) -> String {
-        self.column.iter().skip(at).collect()
     }
 }
 
@@ -907,6 +907,33 @@ mod tests {
 
         assert_eq!(&['a'], buf.column());
         assert_eq!(&['b', 'c'], buf2.column());
+    }
+
+    #[test]
+    fn row_to_string_at_0() {
+        let buf = Row::from(&['a', 'b', 'c'][..]);
+
+        let s = buf.to_string_at(0);
+
+        assert_eq!("abc", s);
+    }
+
+    #[test]
+    fn row_to_string_at_1() {
+        let buf = Row::from(&['a', 'b', 'c'][..]);
+
+        let s = buf.to_string_at(1);
+
+        assert_eq!("bc", s);
+    }
+
+    #[test]
+    fn row_to_string_at_3() {
+        let buf = Row::from(&['a', 'b', 'c'][..]);
+
+        let s = buf.to_string_at(3);
+
+        assert_eq!("", s);
     }
 
     #[test]

@@ -22,29 +22,30 @@ pub trait Prompt<T: Terminal> {
         let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
         let mut key = self.read_key_timeout()?;
 
-        let mut chars = vec![];
+        let mut chars = Row::default();
         while match key {
             (KeyEvent::BackSpace, _) => {
-                chars.pop();
-                self.handle_input_event(&chars)?
+                chars.remove(chars.len() - 1);
+                self.handle_input_event(chars.column())?
             }
             (KeyEvent::Enter, _) => false,
             (KeyEvent::Escape, _) => return Ok(None),
             (KeyEvent::Char(ch), _) if !ch.is_ascii_control() => {
-                chars.push(ch);
-                self.handle_input_event(&chars)?
+                chars.insert(chars.len(), ch);
+                self.handle_input_event(chars.column())?
             }
-            _ => self.handle_event(&key, &chars)?,
+            _ => self.handle_event(&key, chars.column())?,
         } {
-            self.callback_event(&key, &chars)?;
+            self.callback_event(&key, chars.column())?;
 
             prompt.draw(self.terminal())?;
-            // FIXEDME: truncate chars
-            self.terminal().write(prompt_x, prompt_y, &chars, false)?;
+            chars.truncate_width(self.screen().width() - prompt_x - 1);
+            self.terminal()
+                .write(prompt_x, prompt_y, chars.column(), false)?;
             key = self.read_key_timeout()?;
         }
 
-        Ok(Some(chars.iter().collect::<String>()))
+        Ok(Some(chars.to_string_at(0)))
     }
 
     #[allow(unused_variables)]
