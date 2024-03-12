@@ -180,7 +180,7 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
         key: &(KeyEvent, KeyModifier),
         chars: &[char],
     ) -> Result<bool, Error> {
-        let keyword = chars.iter().collect::<String>();
+        let keyword = Row::from(chars);
         match &key {
             (KeyEvent::F3, KeyModifier::None) => {
                 self.move_next_keyword(&keyword)?;
@@ -195,7 +195,7 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
     }
 
     fn handle_input_event(&mut self, chars: &[char]) -> Result<bool, Error> {
-        let keyword = chars.iter().collect::<String>();
+        let keyword = Row::from(chars);
         if keyword.is_empty() {
             self.current.set(self.content, &(0, 0));
             self.clear_screen()?;
@@ -245,55 +245,64 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
     }
 
     fn clear_screen(&mut self) -> Result<(), Error> {
-        // FIXEDME: screen move belong on keyword width.
-        let render = self.current.render(self.content);
-        self.screen.fit(self.content, &render);
         self.screen.clear(self.terminal)?;
         self.screen.draw(self.content, self.terminal)?;
         self.status.draw(self.current, self.terminal)?;
         Ok(())
     }
 
-    fn incremental_keyword(&mut self, keyword: &str) -> Result<(), Error> {
-        if let Some((x, y)) = self.content.find_at(self.current, keyword) {
-            self.current.set(self.content, &(x, y));
-            self.clear_screen()?;
-            self.set_text_attribute(keyword)?;
+    fn incremental_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
+        if let Some((x, y)) = self.content.find_at(self.current, &keyword.to_string_at(0)) {
+            self.mark_match(&(x, y), keyword)?;
         } else {
             self.clear_screen()?;
         }
         Ok(())
     }
 
-    fn move_next_keyword(&mut self, keyword: &str) -> Result<(), Error> {
+    fn mark_match<P: Coordinates>(&mut self, cursor: &P, keyword: &Row) -> Result<(), Error> {
+        self.current.set(self.content, cursor);
+
+        let keyword_width = keyword.width();
+        if keyword_width < self.screen().width() {
+            let mut last_ch = self.current.clone();
+            last_ch.set_x(self.content, self.current.x() + keyword.len() - 1);
+            self.screen.fit(self.content, &last_ch.render(self.content));
+        }
+
+        self.screen
+            .fit(self.content, &self.current.render(self.content));
+
+        self.clear_screen()?;
+        self.set_text_attribute(keyword)?;
+        Ok(())
+    }
+
+    fn move_next_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
         let mut c = self.current.clone();
         c.move_right(self.content);
 
-        if let Some((x, y)) = self.content.find_at(&c, keyword) {
-            self.current.set(self.content, &(x, y));
-            self.clear_screen()?;
-            self.set_text_attribute(keyword)?;
+        if let Some((x, y)) = self.content.find_at(&c, &keyword.to_string_at(0)) {
+            self.mark_match(&(x, y), keyword)?;
         }
 
         Ok(())
     }
 
-    fn move_previous_keyword(&mut self, keyword: &str) -> Result<(), Error> {
+    fn move_previous_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
         let mut c = self.current.clone();
         c.move_left(self.content);
 
-        if let Some((x, y)) = self.content.rfind_at(&c, keyword) {
-            self.current.set(self.content, &(x, y));
-            self.clear_screen()?;
-            self.set_text_attribute(keyword)?;
+        if let Some((x, y)) = self.content.rfind_at(&c, &keyword.to_string_at(0)) {
+            self.mark_match(&(x, y), keyword)?;
         }
 
         Ok(())
     }
 
-    fn set_text_attribute(&mut self, keyword: &str) -> Result<(), Error> {
+    fn set_text_attribute(&mut self, keyword: &Row) -> Result<(), Error> {
         let render = self.current.render(self.content);
-        let keyword_width = Row::from(keyword.chars().collect::<Vec<char>>()).width();
+        let keyword_width = keyword.width();
         let length = min(keyword_width, self.screen.right() - render.x() + 1);
         self.terminal.set_text_attribute(
             render.x() - self.screen.left(),
