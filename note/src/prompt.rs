@@ -4,6 +4,7 @@ use crate::error::Error;
 use crate::key_event::{KeyEvent, KeyModifier};
 use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
+use std::cmp::min;
 
 pub trait Prompt<T: Terminal> {
     #[allow(unused_variables)]
@@ -292,7 +293,8 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
 
     fn set_text_attribute(&mut self, keyword: &str) -> Result<(), Error> {
         let render = self.current.render(self.content);
-        let length = Row::from(keyword.chars().collect::<Vec<char>>()).width();
+        let keyword_width = Row::from(keyword.chars().collect::<Vec<char>>()).width();
+        let length = min(keyword_width, self.screen.right() - render.x() + 1);
         self.terminal.set_text_attribute(
             render.x() - self.screen.left(),
             render.y() - self.screen.top(),
