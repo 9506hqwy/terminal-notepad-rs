@@ -7,4 +7,4 @@ pub mod prompt;
 pub mod screen;
 pub mod terminal;
 
-mod console;
+mod windows;

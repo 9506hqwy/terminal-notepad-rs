@@ -1,6 +1,6 @@
-use crate::console;
 use crate::error::Error;
 use crate::key_event::{KeyEvent, KeyModifier};
+use crate::windows;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
@@ -46,40 +46,40 @@ pub struct WindowsCon;
 
 impl Terminal for WindowsCon {
     fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
-        console::read_key()
+        windows::read_key()
     }
 
     fn alternate_screen_buffer(&mut self) -> Result<(), Error> {
-        console::alternate_screen_buffer()?;
+        windows::alternate_screen_buffer()?;
         Ok(())
     }
 
     fn clear_screen(&mut self) -> Result<(), Error> {
-        console::clear_screen()
+        windows::clear_screen()
     }
 
     fn enable_raw_mode(&mut self) -> Result<(), Error> {
-        console::enable_raw_mode()
+        windows::enable_raw_mode()
     }
 
     fn get_cursor_position(&self) -> Result<(usize, usize), Error> {
-        console::get_cursor_position()
+        windows::get_cursor_position()
     }
 
     fn get_screen_size(&self) -> Result<(usize, usize), Error> {
-        console::get_screen_size()
+        windows::get_screen_size()
     }
 
     fn set_cursor_position(&mut self, x: usize, y: usize) -> Result<(), Error> {
-        console::set_cursor_position(x, y)
+        windows::set_cursor_position(x, y)
     }
 
     fn set_text_attribute(&mut self, x: usize, y: usize, length: usize) -> Result<(), Error> {
-        console::set_text_attribute(x, y, length)
+        windows::set_text_attribute(x, y, length)
     }
 
     fn write(&mut self, x: usize, y: usize, row: &[char], rev: bool) -> Result<(), Error> {
-        console::write_console(x, y, row, rev)
+        windows::write_console(x, y, row, rev)
     }
 }
 
