@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::key_event::{KeyEvent, KeyModifier};
+use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
 use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE};
 use windows::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
 use windows::Win32::System::Console::{
@@ -12,7 +12,7 @@ use windows::Win32::System::Console::{
     CONSOLE_CHARACTER_ATTRIBUTES, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO,
     CONSOLE_TEXTMODE_BUFFER, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
     ENABLE_PROCESSED_OUTPUT, ENABLE_WRAP_AT_EOL_OUTPUT, INPUT_RECORD, KEY_EVENT, SHIFT_PRESSED,
-    SMALL_RECT, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    SMALL_RECT, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, WINDOW_BUFFER_SIZE_EVENT,
 };
 
 pub fn alternate_screen_buffer() -> Result<HANDLE, Error> {
@@ -85,11 +85,15 @@ pub fn get_screen_size() -> Result<(usize, usize), Error> {
     ))
 }
 
-pub fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
+pub fn read_key() -> Result<Event, Error> {
     loop {
         let mut buf = [INPUT_RECORD::default(); 1];
         let mut num = 1u32;
         unsafe { ReadConsoleInputW(stdin()?, buf.as_mut_slice(), &mut num) }?;
+
+        if buf[0].EventType == (WINDOW_BUFFER_SIZE_EVENT as u16) {
+            return Ok(Event::from(WindowEvent::Resize));
+        }
 
         if buf[0].EventType != (KEY_EVENT as u16) {
             continue;
@@ -109,19 +113,19 @@ pub fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
         // https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes
         let v_key = unsafe { buf[0].Event.KeyEvent.wVirtualKeyCode };
         match v_key {
-            0x08 => return Ok((KeyEvent::BackSpace, modifier)),
-            0x0D => return Ok((KeyEvent::Enter, modifier)),
-            0x1B => return Ok((KeyEvent::Escape, modifier)),
-            0x23 => return Ok((KeyEvent::End, modifier)),
-            0x21 => return Ok((KeyEvent::PageUp, modifier)),
-            0x22 => return Ok((KeyEvent::PageDown, modifier)),
-            0x24 => return Ok((KeyEvent::Home, modifier)),
-            0x25 => return Ok((KeyEvent::ArrowLeft, modifier)),
-            0x26 => return Ok((KeyEvent::ArrowUp, modifier)),
-            0x27 => return Ok((KeyEvent::ArrowRight, modifier)),
-            0x28 => return Ok((KeyEvent::ArrowDown, modifier)),
-            0x2E => return Ok((KeyEvent::Delete, modifier)),
-            0x72 => return Ok((KeyEvent::F3, modifier)),
+            0x08 => return Ok(Event::from((KeyEvent::BackSpace, modifier))),
+            0x0D => return Ok(Event::from((KeyEvent::Enter, modifier))),
+            0x1B => return Ok(Event::from((KeyEvent::Escape, modifier))),
+            0x23 => return Ok(Event::from((KeyEvent::End, modifier))),
+            0x21 => return Ok(Event::from((KeyEvent::PageUp, modifier))),
+            0x22 => return Ok(Event::from((KeyEvent::PageDown, modifier))),
+            0x24 => return Ok(Event::from((KeyEvent::Home, modifier))),
+            0x25 => return Ok(Event::from((KeyEvent::ArrowLeft, modifier))),
+            0x26 => return Ok(Event::from((KeyEvent::ArrowUp, modifier))),
+            0x27 => return Ok(Event::from((KeyEvent::ArrowRight, modifier))),
+            0x28 => return Ok(Event::from((KeyEvent::ArrowDown, modifier))),
+            0x2E => return Ok(Event::from((KeyEvent::Delete, modifier))),
+            0x72 => return Ok(Event::from((KeyEvent::F3, modifier))),
             _ => {}
         }
 
@@ -131,14 +135,14 @@ pub fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
             if ch.is_ascii_control() {
                 // https://doc.rust-lang.org/std/ascii/enum.Char.html
                 match ch as u8 {
-                    6 => return Ok((KeyEvent::Find, modifier)),  // Ctrl+'F'
-                    17 => return Ok((KeyEvent::Exit, modifier)), // Ctrl+'Q'
-                    19 => return Ok((KeyEvent::Save, modifier)), // Ctrl+'S'
+                    6 => return Ok(Event::from((KeyEvent::Find, modifier))), // Ctrl+'F'
+                    17 => return Ok(Event::from((KeyEvent::Exit, modifier))), // Ctrl+'Q'
+                    19 => return Ok(Event::from((KeyEvent::Save, modifier))), // Ctrl+'S'
                     _ => {}
                 }
             }
 
-            return Ok((KeyEvent::Char(ch), modifier));
+            return Ok(Event::from((KeyEvent::Char(ch), modifier)));
         }
     }
 }

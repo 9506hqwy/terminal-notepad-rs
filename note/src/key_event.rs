@@ -1,3 +1,20 @@
+pub enum Event {
+    Key(KeyEvent, KeyModifier),
+    Window(WindowEvent),
+}
+
+impl From<(KeyEvent, KeyModifier)> for Event {
+    fn from(value: (KeyEvent, KeyModifier)) -> Self {
+        Event::Key(value.0, value.1)
+    }
+}
+
+impl From<WindowEvent> for Event {
+    fn from(value: WindowEvent) -> Self {
+        Event::Window(value)
+    }
+}
+
 pub enum KeyEvent {
     // virtual key codes
     BackSpace,
@@ -24,4 +41,8 @@ pub enum KeyEvent {
 pub enum KeyModifier {
     None,
     Shift,
+}
+
+pub enum WindowEvent {
+    Resize,
 }

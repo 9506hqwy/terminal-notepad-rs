@@ -1,18 +1,14 @@
 use crate::buffer::{Buffer, Row};
 use crate::cursor::{Coordinates, Cursor};
 use crate::error::Error;
-use crate::key_event::{KeyEvent, KeyModifier};
+use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
 use std::cmp::min;
 
 pub trait Prompt<T: Terminal> {
     #[allow(unused_variables)]
-    fn callback_event(
-        &mut self,
-        key: &(KeyEvent, KeyModifier),
-        chars: &[char],
-    ) -> Result<(), Error> {
+    fn callback_event(&mut self, key: &Event, chars: &[char]) -> Result<(), Error> {
         Ok(())
     }
 
@@ -25,17 +21,19 @@ pub trait Prompt<T: Terminal> {
 
         let mut chars = Row::default();
         while match key {
-            (KeyEvent::BackSpace, _) => {
+            Event::Key(KeyEvent::BackSpace, _) => {
                 chars.remove(chars.len() - 1);
                 self.handle_input_event(chars.column())?
             }
-            (KeyEvent::Enter, _) => false,
-            (KeyEvent::Escape, _) => return Ok(None),
-            (KeyEvent::Char(ch), _) if !ch.is_ascii_control() => {
+            Event::Key(KeyEvent::Enter, _) => false,
+            Event::Key(KeyEvent::Escape, _) => return Ok(None),
+            Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => {
                 chars.insert(chars.len(), ch);
                 self.handle_input_event(chars.column())?
             }
-            _ => self.handle_event(&key, chars.column())?,
+            Event::Key(..) => self.handle_event(&key, chars.column())?,
+            // TODO: resize screen
+            _ => true,
         } {
             self.callback_event(&key, chars.column())?;
 
@@ -50,11 +48,7 @@ pub trait Prompt<T: Terminal> {
     }
 
     #[allow(unused_variables)]
-    fn handle_event(
-        &mut self,
-        key: &(KeyEvent, KeyModifier),
-        chars: &[char],
-    ) -> Result<bool, Error> {
+    fn handle_event(&mut self, key: &Event, chars: &[char]) -> Result<bool, Error> {
         Ok(true)
     }
 
@@ -65,7 +59,7 @@ pub trait Prompt<T: Terminal> {
 
     fn message(&self) -> &str;
 
-    fn read_key_timeout(&self) -> Result<(KeyEvent, KeyModifier), Error> {
+    fn read_key_timeout(&self) -> Result<Event, Error> {
         T::read_key_timeout()
     }
 
@@ -175,18 +169,14 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
         self.message.as_str()
     }
 
-    fn handle_event(
-        &mut self,
-        key: &(KeyEvent, KeyModifier),
-        chars: &[char],
-    ) -> Result<bool, Error> {
+    fn handle_event(&mut self, key: &Event, chars: &[char]) -> Result<bool, Error> {
         let keyword = Row::from(chars);
         match &key {
-            (KeyEvent::F3, KeyModifier::None) => {
+            Event::Key(KeyEvent::F3, KeyModifier::None) => {
                 self.move_next_keyword(&keyword)?;
                 Ok(true)
             }
-            (KeyEvent::F3, KeyModifier::Shift) => {
+            Event::Key(KeyEvent::F3, KeyModifier::Shift) => {
                 self.move_previous_keyword(&keyword)?;
                 Ok(true)
             }

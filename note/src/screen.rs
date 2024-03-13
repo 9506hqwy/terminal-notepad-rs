@@ -14,15 +14,10 @@ pub struct Screen {
 
 impl Screen {
     pub fn current(terminal: &impl Terminal) -> Result<Self, Error> {
+        let mut screen = Screen::default();
         let (width, height) = terminal.get_screen_size()?;
-        Ok(Screen {
-            width,
-            // -2 is
-            // - status bar
-            // - message bar
-            height: height - 2,
-            ..Default::default()
-        })
+        screen.resize(height, width);
+        Ok(screen)
     }
 
     /// Returns the coordinates index of this screen bottom.
@@ -120,6 +115,15 @@ impl Screen {
         cur != *self
     }
 
+    /// Set screen size.
+    pub fn resize(&mut self, height: usize, width: usize) {
+        // -2 is
+        // - status bar
+        // - message bar
+        self.height = height - 2;
+        self.width = width;
+    }
+
     /// Returns the coordinates index of this screen right.
     pub fn right(&self) -> usize {
         self.left0 + (self.width - 1)
@@ -168,6 +172,11 @@ impl StatusBar {
         Ok(())
     }
 
+    pub fn resize(&mut self, screen: &Screen) {
+        self.y0 = screen.height();
+        self.width = screen.width();
+    }
+
     pub fn set_filename(&mut self, filename: &str) {
         self.filename = Some(filename.to_string());
     }
@@ -196,6 +205,11 @@ impl MessageBar {
         terminal.write(0, self.y0, buffer.column(), false)?;
 
         Ok(())
+    }
+
+    pub fn resize(&mut self, screen: &Screen) {
+        self.y0 = screen.height() + 1;
+        self.width = screen.width();
     }
 }
 

@@ -1,24 +1,21 @@
 use crate::error::Error;
-use crate::key_event::{KeyEvent, KeyModifier};
+use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::windows;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
 
 pub trait Terminal {
-    fn read_key() -> Result<(KeyEvent, KeyModifier), Error>;
+    fn read_key() -> Result<Event, Error>;
 
-    fn read_key_timeout() -> Result<(KeyEvent, KeyModifier), Error> {
+    fn read_key_timeout() -> Result<Event, Error> {
         let (sender, receiver) = channel();
 
         thread::spawn(move || sender.send(Self::read_key()).unwrap());
 
         loop {
-            match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(ch) => return ch,
-                _ => {
-                    // TODO: resize screen window.
-                }
+            if let Ok(ch) = receiver.recv_timeout(Duration::from_millis(16)) {
+                return ch;
             }
         }
     }
@@ -45,7 +42,7 @@ pub trait Terminal {
 pub struct WindowsCon;
 
 impl Terminal for WindowsCon {
-    fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
+    fn read_key() -> Result<Event, Error> {
         windows::read_key()
     }
 
@@ -99,8 +96,8 @@ impl Null {
 
 #[allow(unused_variables)]
 impl Terminal for Null {
-    fn read_key() -> Result<(KeyEvent, KeyModifier), Error> {
-        Ok((KeyEvent::Char('a'), KeyModifier::None))
+    fn read_key() -> Result<Event, Error> {
+        Ok(Event::from((KeyEvent::Char('a'), KeyModifier::None)))
     }
 
     fn alternate_screen_buffer(&mut self) -> Result<(), Error> {

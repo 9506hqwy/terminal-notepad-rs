@@ -1,7 +1,7 @@
 use crate::buffer::Buffer;
 use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
-use crate::key_event::KeyEvent;
+use crate::key_event::{Event, KeyEvent, WindowEvent};
 use crate::prompt::{self, Prompt};
 use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
@@ -138,37 +138,41 @@ impl<T: Terminal> Editor<T> {
         self.screen_modified = false;
         self.status_modified = false;
         self.cursor_modified = match T::read_key_timeout()? {
-            (KeyEvent::BackSpace, _) => self.delete_char(),
-            (KeyEvent::Enter, _) => self.enter(),
-            (KeyEvent::End, _) => self.cursor.move_to_xmax(&self.content),
-            (KeyEvent::PageUp, _) => {
+            Event::Key(KeyEvent::BackSpace, _) => self.delete_char(),
+            Event::Key(KeyEvent::Enter, _) => self.enter(),
+            Event::Key(KeyEvent::End, _) => self.cursor.move_to_xmax(&self.content),
+            Event::Key(KeyEvent::PageUp, _) => {
                 self.screen_modified = self.screen.move_up();
                 self.cursor.move_up_screen(&self.content, &self.screen)
             }
-            (KeyEvent::PageDown, _) => {
+            Event::Key(KeyEvent::PageDown, _) => {
                 self.screen_modified = self.screen.move_down(&self.content);
                 self.cursor.move_down_screen(&self.content, &self.screen)
             }
-            (KeyEvent::Home, _) => self.cursor.move_to_x0(),
-            (KeyEvent::ArrowLeft, _) => self.cursor.move_left(&self.content),
-            (KeyEvent::ArrowUp, _) => self.cursor.move_up(&self.content),
-            (KeyEvent::ArrowRight, _) => self.cursor.move_right(&self.content),
-            (KeyEvent::ArrowDown, _) => self.cursor.move_down(&self.content),
-            (KeyEvent::Delete, _) => {
+            Event::Key(KeyEvent::Home, _) => self.cursor.move_to_x0(),
+            Event::Key(KeyEvent::ArrowLeft, _) => self.cursor.move_left(&self.content),
+            Event::Key(KeyEvent::ArrowUp, _) => self.cursor.move_up(&self.content),
+            Event::Key(KeyEvent::ArrowRight, _) => self.cursor.move_right(&self.content),
+            Event::Key(KeyEvent::ArrowDown, _) => self.cursor.move_down(&self.content),
+            Event::Key(KeyEvent::Delete, _) => {
                 let moved = self.cursor.move_right(&self.content);
                 self.delete_char();
                 moved
             }
-            (KeyEvent::Find, _) => self.find()?,
-            (KeyEvent::Exit, _) => {
+            Event::Key(KeyEvent::Find, _) => self.find()?,
+            Event::Key(KeyEvent::Exit, _) => {
                 self.exit()?;
                 false
             }
-            (KeyEvent::Save, _) => {
+            Event::Key(KeyEvent::Save, _) => {
                 self.save()?;
                 false
             }
-            (KeyEvent::Char(ch), _) if !ch.is_ascii_control() => self.input_char(ch),
+            Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => self.input_char(ch),
+            Event::Window(WindowEvent::Resize) => {
+                self.resize_screen()?;
+                false
+            }
             _ => false,
         };
         Ok(self.cursor_modified)
@@ -213,6 +217,24 @@ impl<T: Terminal> Editor<T> {
             render.x() - self.screen.left(),
             render.y() - self.screen.top(),
         )?;
+
+        Ok(())
+    }
+
+    pub fn resize_screen(&mut self) -> Result<(), Error> {
+        let (width, height) = self.terminal.get_screen_size()?;
+
+        if self.screen.width() != width || self.screen.height() != height {
+            self.content_modified = true;
+
+            self.screen.resize(height, width);
+            self.screen_modified = true;
+
+            self.status.resize(&self.screen);
+            self.status_modified = true;
+
+            self.message.resize(&self.screen);
+        }
 
         Ok(())
     }
