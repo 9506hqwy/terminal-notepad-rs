@@ -31,6 +31,7 @@ pub enum KeyEvent {
     Delete,
     F3,
     // ctrl modifier
+    DeleteRow,
     Find,
     Exit,
     Save,

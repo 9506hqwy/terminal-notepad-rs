@@ -161,6 +161,13 @@ impl Buffer {
         self.filename = Some(PathBuf::from(filename));
     }
 
+    pub fn shrink_row<P: Coordinates>(&mut self, at: &P) {
+        if let Some(row) = self.rows.get_mut(at.y()) {
+            self.cached = true;
+            row.split_off(at.x());
+        }
+    }
+
     pub fn split_row<P: Coordinates>(&mut self, at: &P) {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
@@ -672,6 +679,32 @@ mod tests {
 
         assert!(ret.is_ok());
         assert!(buf.cached());
+    }
+
+    #[test]
+    fn buffer_shrink_row() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c']);
+        buf.cached = false;
+
+        buf.shrink_row(&(1, 0));
+
+        assert_eq!(1, buf.rows());
+        assert_eq!(&['a'], buf.rows[0].column());
+        assert!(buf.cached());
+    }
+
+    #[test]
+    fn buffer_shrink_row_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c']);
+        buf.cached = false;
+
+        buf.shrink_row(&(1, 1));
+
+        assert_eq!(1, buf.rows());
+        assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
+        assert!(!buf.cached());
     }
 
     #[test]

@@ -159,6 +159,16 @@ impl<T: Terminal> Editor<T> {
                 self.delete_char();
                 moved
             }
+            Event::Key(KeyEvent::DeleteRow, _) => {
+                if self.content.row_char_len(&self.cursor) == 0 {
+                    self.content.delete_row(&self.cursor);
+                } else {
+                    self.content.shrink_row(&self.cursor);
+                }
+                self.content_modified = true;
+                // FIXEDME: ???
+                true
+            }
             Event::Key(KeyEvent::Find, _) => self.find()?,
             Event::Key(KeyEvent::Exit, _) => {
                 self.exit()?;
