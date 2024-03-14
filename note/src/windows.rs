@@ -85,7 +85,7 @@ pub fn get_screen_size() -> Result<(usize, usize), Error> {
     ))
 }
 
-pub fn read_key() -> Result<Event, Error> {
+pub fn read_event() -> Result<Event, Error> {
     loop {
         let mut buf = [INPUT_RECORD::default(); 1];
         let mut num = 1u32;

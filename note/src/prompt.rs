@@ -8,7 +8,7 @@ use std::cmp::min;
 
 pub trait Prompt<T: Terminal> {
     #[allow(unused_variables)]
-    fn callback_event(&mut self, key: &Event, chars: &[char]) -> Result<(), Error> {
+    fn callback_event(&mut self, event: &Event, chars: &[char]) -> Result<(), Error> {
         Ok(())
     }
 
@@ -17,10 +17,10 @@ pub trait Prompt<T: Terminal> {
 
         prompt.draw(self.terminal())?;
         let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
-        let mut key = self.read_key_timeout()?;
+        let mut event = self.read_event_timeout()?;
 
         let mut chars = Row::default();
-        while match key {
+        while match event {
             Event::Key(KeyEvent::BackSpace, _) => {
                 chars.remove(chars.len() - 1);
                 self.handle_input_event(chars.column())?
@@ -31,24 +31,24 @@ pub trait Prompt<T: Terminal> {
                 chars.insert(chars.len(), ch);
                 self.handle_input_event(chars.column())?
             }
-            Event::Key(..) => self.handle_event(&key, chars.column())?,
+            Event::Key(..) => self.handle_event(&event, chars.column())?,
             // TODO: resize screen
             _ => true,
         } {
-            self.callback_event(&key, chars.column())?;
+            self.callback_event(&event, chars.column())?;
 
             prompt.draw(self.terminal())?;
             chars.truncate_width(self.screen().width() - prompt_x - 1);
             self.terminal()
                 .write(prompt_x, prompt_y, chars.column(), false)?;
-            key = self.read_key_timeout()?;
+            event = self.read_event_timeout()?;
         }
 
         Ok(Some(chars.to_string_at(0)))
     }
 
     #[allow(unused_variables)]
-    fn handle_event(&mut self, key: &Event, chars: &[char]) -> Result<bool, Error> {
+    fn handle_event(&mut self, event: &Event, chars: &[char]) -> Result<bool, Error> {
         Ok(true)
     }
 
@@ -59,8 +59,8 @@ pub trait Prompt<T: Terminal> {
 
     fn message(&self) -> &str;
 
-    fn read_key_timeout(&self) -> Result<Event, Error> {
-        T::read_key_timeout()
+    fn read_event_timeout(&self) -> Result<Event, Error> {
+        T::read_event_timeout()
     }
 
     fn screen(&self) -> &Screen;
@@ -169,9 +169,9 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
         self.message.as_str()
     }
 
-    fn handle_event(&mut self, key: &Event, chars: &[char]) -> Result<bool, Error> {
+    fn handle_event(&mut self, event: &Event, chars: &[char]) -> Result<bool, Error> {
         let keyword = Row::from(chars);
-        match &key {
+        match &event {
             Event::Key(KeyEvent::F3, KeyModifier::None) => {
                 self.move_next_keyword(&keyword)?;
                 Ok(true)

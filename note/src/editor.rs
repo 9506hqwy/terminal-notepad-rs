@@ -137,7 +137,7 @@ impl<T: Terminal> Editor<T> {
         self.content_modified = false;
         self.screen_modified = false;
         self.status_modified = false;
-        self.cursor_modified = match T::read_key_timeout()? {
+        self.cursor_modified = match T::read_event_timeout()? {
             Event::Key(KeyEvent::BackSpace, _) => self.delete_char(),
             Event::Key(KeyEvent::Enter, _) => self.enter(),
             Event::Key(KeyEvent::End, _) => self.cursor.move_to_xmax(&self.content),

@@ -6,12 +6,12 @@ use std::thread;
 use std::time::Duration;
 
 pub trait Terminal {
-    fn read_key() -> Result<Event, Error>;
+    fn read_event() -> Result<Event, Error>;
 
-    fn read_key_timeout() -> Result<Event, Error> {
+    fn read_event_timeout() -> Result<Event, Error> {
         let (sender, receiver) = channel();
 
-        thread::spawn(move || sender.send(Self::read_key()).unwrap());
+        thread::spawn(move || sender.send(Self::read_event()).unwrap());
 
         loop {
             if let Ok(ch) = receiver.recv_timeout(Duration::from_millis(16)) {
@@ -42,8 +42,8 @@ pub trait Terminal {
 pub struct WindowsCon;
 
 impl Terminal for WindowsCon {
-    fn read_key() -> Result<Event, Error> {
-        windows::read_key()
+    fn read_event() -> Result<Event, Error> {
+        windows::read_event()
     }
 
     fn alternate_screen_buffer(&mut self) -> Result<(), Error> {
@@ -96,7 +96,7 @@ impl Null {
 
 #[allow(unused_variables)]
 impl Terminal for Null {
-    fn read_key() -> Result<Event, Error> {
+    fn read_event() -> Result<Event, Error> {
         Ok(Event::from((KeyEvent::Char('a'), KeyModifier::None)))
     }
 
