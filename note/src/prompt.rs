@@ -22,8 +22,12 @@ pub trait Prompt<T: Terminal> {
         let mut chars = Row::default();
         while match event {
             Event::Key(KeyEvent::BackSpace, _) => {
-                chars.remove(chars.len() - 1);
-                self.handle_input_event(chars.column())?
+                if !chars.is_empty() {
+                    chars.remove(chars.len() - 1);
+                    self.handle_input_event(chars.column())?
+                } else {
+                    true
+                }
             }
             Event::Key(KeyEvent::Enter, _) => false,
             Event::Key(KeyEvent::Escape, _) => return Ok(None),
