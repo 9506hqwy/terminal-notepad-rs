@@ -206,7 +206,7 @@ impl<T: Terminal> Editor<T> {
 
     pub fn init(&mut self) -> Result<(), Error> {
         self.screen.draw(&self.content, &mut self.terminal)?;
-        *self.content.updated_mut() = false;
+        self.content.clear_updated();
 
         self.status.set_cursor(&self.cursor);
         self.status.draw(&mut self.terminal)?;
@@ -223,7 +223,7 @@ impl<T: Terminal> Editor<T> {
 
         self.screen.fit(&self.content, &render);
         self.screen.draw(&self.content, &mut self.terminal)?;
-        *self.content.updated_mut() = false;
+        self.content.clear_updated();
 
         self.status.set_cursor(&render);
         self.status.draw(&mut self.terminal)?;

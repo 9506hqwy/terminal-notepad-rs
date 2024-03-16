@@ -39,10 +39,16 @@ impl Screen {
             return Ok(());
         }
 
-        self.clear(terminal)?;
+        if self.updated {
+            self.clear(terminal)?;
+        }
 
         let end = min(content.rows(), self.bottom() + 1);
         for index in self.top0..end {
+            if !self.updated && !content.row_updated(index) {
+                continue;
+            }
+
             let row = content.get(index).unwrap();
             let buffer = row.slice_width(self.left0..self.right() + 1);
 

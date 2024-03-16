@@ -15,7 +15,7 @@ pub struct Buffer {
     rows: Vec<Row>,
     filename: Option<PathBuf>,
     cached: bool,
-    updated: bool,
+    updated: Vec<Range<usize>>,
     history: History<(usize, usize)>,
 }
 
@@ -55,7 +55,7 @@ impl Buffer {
     ) -> Option<(usize, usize)> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
-            self.updated = true;
+            self.updated.push(at.y()..at.y() + 1);
             let x = row.len();
             row.append(text);
             Some((x, at.y()))
@@ -66,6 +66,10 @@ impl Buffer {
 
     pub fn cached(&self) -> bool {
         self.cached
+    }
+
+    pub fn clear_updated(&mut self) {
+        self.updated.clear();
     }
 
     pub fn delete_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
@@ -82,7 +86,7 @@ impl Buffer {
     pub fn delete_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
         if at.y() < self.rows() {
             self.cached = true;
-            self.updated = true;
+            self.updated.push(at.y()..self.rows());
             Some(self.rows.remove(at.y()))
         } else {
             None
@@ -103,7 +107,7 @@ impl Buffer {
             if 0 < at.x() && at.x() <= row.len() {
                 if let Some(ch) = row.remove(at.x() - 1) {
                     self.cached = true;
-                    self.updated = true;
+                    self.updated.push(at.y()..at.y() + 1);
                     return Some(ch);
                 }
             }
@@ -140,7 +144,7 @@ impl Buffer {
 
     pub fn insert_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
         self.cached = true;
-        self.updated = true;
+        self.updated.push(at.y()..self.rows());
         self.rows.insert(at.y(), Row::from(text));
     }
 
@@ -161,7 +165,7 @@ impl Buffer {
         if let Some(row) = self.rows.get_mut(at.y()) {
             if at.x() <= row.len() {
                 self.cached = true;
-                self.updated = true;
+                self.updated.push(at.y()..at.y() + 1);
                 row.insert(at.x(), ch);
                 return Some((at.x(), at.y()));
             }
@@ -197,6 +201,10 @@ impl Buffer {
 
     pub fn row_char_len<P: Coordinates>(&self, at: &P) -> usize {
         self.rows.get(at.y()).map(|r| r.len()).unwrap_or_default()
+    }
+
+    pub fn row_updated(&self, row: usize) -> bool {
+        self.updated.iter().any(|r| r.start <= row && row < r.end)
     }
 
     pub fn rows(&self) -> usize {
@@ -244,7 +252,7 @@ impl Buffer {
     pub fn shrink_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
-            self.updated = true;
+            self.updated.push(at.y()..at.y() + 1);
             Some(row.split_off(at.x()))
         } else {
             None
@@ -262,9 +270,10 @@ impl Buffer {
         &mut self,
         at: &P,
     ) -> Option<(usize, usize)> {
+        let row_len = self.rows();
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
-            self.updated = true;
+            self.updated.push(at.y()..row_len);
 
             let next = row.split_off(at.x());
 
@@ -293,7 +302,7 @@ impl Buffer {
         if 0 < at.y() {
             if let Some(row) = self.delete_row_bypass(at) {
                 self.cached = true;
-                self.updated = true;
+                self.updated.push(at.y() - 1..self.rows());
 
                 let mut next_at = Cursor::default();
                 next_at.set(self, &(at.x(), at.y() - 1));
@@ -308,7 +317,6 @@ impl Buffer {
     pub fn undo(&mut self) -> Option<(usize, usize)> {
         if let Some(history) = self.history.rollback() {
             self.cached = true;
-            self.updated = true;
             let cord = match history {
                 (cur, Operation::Append(cord)) => {
                     self.shrink_row_bypass(&cord);
@@ -350,11 +358,7 @@ impl Buffer {
     }
 
     pub fn updated(&self) -> bool {
-        self.updated
-    }
-
-    pub fn updated_mut(&mut self) -> &mut bool {
-        &mut self.updated
+        !self.updated.is_empty()
     }
 }
 
@@ -534,7 +538,7 @@ mod tests {
 
     fn init_screen(buf: &mut Buffer) {
         buf.cached = false;
-        buf.updated = false;
+        buf.clear_updated();
         buf.history.clear();
     }
 
