@@ -178,6 +178,40 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
     fn handle_event(&mut self, event: &Event, chars: &[char]) -> Result<bool, Error> {
         let keyword = Row::from(chars);
         match &event {
+            Event::Key(KeyEvent::End, _) => {
+                self.current.move_to_xmax(self.content);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::PageUp, _) => {
+                self.screen.move_up();
+                self.current.move_up_screen(self.content, self.screen);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::PageDown, _) => {
+                self.screen.move_down(self.content);
+                self.current.move_down_screen(self.content, self.screen);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::Home, _) => {
+                self.current.move_to_x0();
+                Ok(false)
+            }
+            Event::Key(KeyEvent::ArrowLeft, _) => {
+                self.current.move_left(self.content);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::ArrowUp, _) => {
+                self.current.move_up(self.content);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::ArrowRight, _) => {
+                self.current.move_right(self.content);
+                Ok(false)
+            }
+            Event::Key(KeyEvent::ArrowDown, _) => {
+                self.current.move_down(self.content);
+                Ok(false)
+            }
             Event::Key(KeyEvent::F3, KeyModifier::None) => {
                 self.move_next_keyword(&keyword)?;
                 Ok(true)
