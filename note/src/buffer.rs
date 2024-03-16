@@ -1,5 +1,6 @@
-use crate::cursor::{Coordinates, Cursor};
+use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
+use crate::history::{History, Operation};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::iter;
@@ -14,6 +15,7 @@ pub struct Buffer {
     rows: Vec<Row>,
     filename: Option<PathBuf>,
     cached: bool,
+    history: History<(usize, usize)>,
 }
 
 impl TryFrom<Option<&Path>> for Buffer {
@@ -38,10 +40,25 @@ impl TryFrom<Option<&Path>> for Buffer {
 }
 
 impl Buffer {
-    pub fn append_row<P: Coordinates>(&mut self, at: &P, text: &[char]) {
+    pub fn append_row<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
+        if let Some(cur) = self.append_row_bypass(at, text) {
+            self.history
+                .record(at.as_coordinates(), Operation::Append(cur));
+        }
+    }
+
+    pub fn append_row_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        text: &[char],
+    ) -> Option<(usize, usize)> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
+            let x = row.len();
             row.append(text);
+            Some((x, at.y()))
+        } else {
+            None
         }
     }
 
@@ -49,7 +66,18 @@ impl Buffer {
         self.cached
     }
 
-    pub fn delete_row<P: Coordinates>(&mut self, at: &P) -> Option<Row> {
+    pub fn delete_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
+        let row = self.delete_row_bypass(at);
+        if let Some(r) = row.as_ref() {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::DeleteRow(at.as_coordinates(), r.clone()),
+            );
+        }
+        row
+    }
+
+    pub fn delete_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
         if at.y() < self.rows() {
             self.cached = true;
             Some(self.rows.remove(at.y()))
@@ -58,13 +86,26 @@ impl Buffer {
         }
     }
 
-    pub fn delete_char<P: Coordinates>(&mut self, at: &P) {
+    pub fn delete_char<P: Coordinates + AsCoordinates>(&mut self, at: &P) {
+        if let Some(ch) = self.delete_char_bypass(at) {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::DeleteChar(at.as_coordinates(), ch),
+            );
+        }
+    }
+
+    pub fn delete_char_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<char> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             if 0 < at.x() && at.x() <= row.len() {
-                self.cached = true;
-                row.remove(at.x() - 1);
+                if let Some(ch) = row.remove(at.x() - 1) {
+                    self.cached = true;
+                    return Some(ch);
+                }
             }
         }
+
+        None
     }
 
     pub fn find_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
@@ -85,18 +126,42 @@ impl Buffer {
         self.rows.get(index)
     }
 
-    pub fn insert_row<P: Coordinates>(&mut self, at: &P, text: &[char]) {
+    pub fn insert_row<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
+        self.insert_row_bypass(at, text);
+        self.history.record(
+            at.as_coordinates(),
+            Operation::InsertRow(at.as_coordinates()),
+        );
+    }
+
+    pub fn insert_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
         self.cached = true;
         self.rows.insert(at.y(), Row::from(text));
     }
 
-    pub fn insert_char<P: Coordinates>(&mut self, at: &P, ch: char) {
+    pub fn insert_char<P: Coordinates + AsCoordinates>(&mut self, at: &P, ch: char) {
+        if self.insert_char_bypass(at, ch).is_some() {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::InsertChar(at.as_coordinates()),
+            );
+        }
+    }
+
+    pub fn insert_char_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        ch: char,
+    ) -> Option<(usize, usize)> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             if at.x() <= row.len() {
                 self.cached = true;
                 row.insert(at.x(), ch);
+                return Some((at.x(), at.y()));
             }
         }
+
+        None
     }
 
     pub fn rfind_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
@@ -161,14 +226,35 @@ impl Buffer {
         self.filename = Some(PathBuf::from(filename));
     }
 
-    pub fn shrink_row<P: Coordinates>(&mut self, at: &P) {
-        if let Some(row) = self.rows.get_mut(at.y()) {
-            self.cached = true;
-            row.split_off(at.x());
+    pub fn shrink_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) {
+        if let Some(row) = self.shrink_row_bypass(at) {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::ShrinkRow(at.as_coordinates(), row),
+            );
         }
     }
 
-    pub fn split_row<P: Coordinates>(&mut self, at: &P) {
+    pub fn shrink_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
+        if let Some(row) = self.rows.get_mut(at.y()) {
+            self.cached = true;
+            Some(row.split_off(at.x()))
+        } else {
+            None
+        }
+    }
+
+    pub fn split_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) {
+        if let Some(cur) = self.split_row_bypass(at) {
+            self.history
+                .record(at.as_coordinates(), Operation::SplitRow(cur));
+        }
+    }
+
+    pub fn split_row_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+    ) -> Option<(usize, usize)> {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
 
@@ -177,20 +263,79 @@ impl Buffer {
             let mut next_at = Cursor::default();
             next_at.set(self, &(at.x(), at.y() + 1));
 
-            self.insert_row(&next_at, next.column());
+            self.insert_row_bypass(&next_at, next.column());
+
+            Some(next_at.as_coordinates())
+        } else {
+            None
         }
     }
 
-    pub fn squash_row<P: Coordinates>(&mut self, at: &P) {
+    pub fn squash_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) {
+        if let Some(cur) = self.squash_row_bypass(at) {
+            self.history
+                .record(at.as_coordinates(), Operation::SquashRow(cur));
+        }
+    }
+
+    pub fn squash_row_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+    ) -> Option<(usize, usize)> {
         if 0 < at.y() {
-            if let Some(row) = self.delete_row(at) {
+            if let Some(row) = self.delete_row_bypass(at) {
                 self.cached = true;
 
                 let mut next_at = Cursor::default();
                 next_at.set(self, &(at.x(), at.y() - 1));
 
-                self.append_row(&next_at, row.column());
+                return self.append_row_bypass(&next_at, row.column());
             }
+        }
+
+        None
+    }
+
+    pub fn undo(&mut self) -> Option<(usize, usize)> {
+        if let Some(history) = self.history.rollback() {
+            self.cached = true;
+            let cord = match history {
+                (cur, Operation::Append(cord)) => {
+                    self.shrink_row_bypass(&cord);
+                    cur
+                }
+                (cur, Operation::DeleteChar(cord, ch)) => {
+                    self.insert_char_bypass(&(cord.0 - 1, cord.1), ch);
+                    cur
+                }
+                (cur, Operation::DeleteRow(cord, row)) => {
+                    self.insert_row_bypass(&cord, row.column());
+                    cur
+                }
+                (cur, Operation::InsertChar(cord)) => {
+                    self.delete_char_bypass(&(cord.0 + 1, cord.1));
+                    cur
+                }
+                (cur, Operation::InsertRow(cord)) => {
+                    self.delete_row_bypass(&cord);
+                    cur
+                }
+                (cur, Operation::ShrinkRow(cord, row)) => {
+                    self.append_row_bypass(&cord, row.column());
+                    cur
+                }
+                (cur, Operation::SplitRow(cord)) => {
+                    self.squash_row_bypass(&cord);
+                    cur
+                }
+                (cur, Operation::SquashRow(cord)) => {
+                    self.split_row_bypass(&cord);
+                    cur
+                }
+            };
+            Some(cord)
+        } else {
+            None
         }
     }
 }
@@ -374,11 +519,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.append_row(&(0, 0), &['b']);
 
         assert_eq!(&['a', 'b'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -386,11 +533,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.append_row(&(0, 1), &['b']);
 
         assert_eq!(&['a'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -398,11 +547,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.delete_row(&(0, 0));
 
         assert_eq!(0, buf.rows());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -410,11 +561,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.delete_row(&(0, 1));
 
         assert_eq!(1, buf.rows());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -422,11 +575,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.delete_char(&(1, 0));
 
         assert_eq!(&['b'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -434,11 +589,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.delete_char(&(3, 0));
 
         assert_eq!(&['a', 'b'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -446,11 +603,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.delete_char(&(1, 1));
 
         assert_eq!(&['a', 'b'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -460,6 +619,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.find_at(&(0, 0), "bc");
 
@@ -473,6 +633,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.find_at(&(2, 1), "bc");
 
@@ -486,6 +647,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.find_at(&(2, 2), "bc");
 
@@ -497,6 +659,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         let row = buf.get(0);
 
@@ -508,6 +671,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         let row = buf.get(1);
 
@@ -519,11 +683,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_row(&(0, 0), &['b']);
 
         assert_eq!(&['b'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -531,11 +697,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_row(&(0, 1), &['b']);
 
         assert_eq!(&['b'], buf.rows[1].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -543,11 +711,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_char(&(0, 0), 'b');
 
         assert_eq!(&['b', 'a'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -555,11 +725,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_char(&(1, 0), 'b');
 
         assert_eq!(&['a', 'b'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -567,11 +739,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_char(&(2, 0), 'b');
 
         assert_eq!(&['a'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -579,11 +753,13 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.insert_char(&(0, 1), 'b');
 
         assert_eq!(&['a'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -593,6 +769,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.rfind_at(&(0, 3), "bc");
 
@@ -606,6 +783,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.rfind_at(&(1, 1), "bc");
 
@@ -619,6 +797,7 @@ mod tests {
         buf.insert_row(&(0, 1), &['a', 'b', 'c']);
         buf.insert_row(&(0, 2), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         let at = buf.rfind_at(&(1, 0), "bc");
 
@@ -641,6 +820,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         let len = buf.row_char_len(&(0, 1));
 
@@ -652,6 +832,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         buf.cached = false;
+        buf.history.clear();
 
         let len = buf.rows();
 
@@ -663,6 +844,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.set_filename(&PathBuf::from("a.txt"));
         buf.insert_row(&(0, 0), &['a']);
+        buf.history.clear();
 
         let ret = buf.save();
 
@@ -674,6 +856,7 @@ mod tests {
     fn buffer_save_none() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
+        buf.history.clear();
 
         let ret = buf.save();
 
@@ -686,12 +869,14 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.shrink_row(&(1, 0));
 
         assert_eq!(1, buf.rows());
         assert_eq!(&['a'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -699,12 +884,14 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.shrink_row(&(1, 1));
 
         assert_eq!(1, buf.rows());
         assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -712,6 +899,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.split_row(&(1, 0));
 
@@ -719,6 +907,7 @@ mod tests {
         assert_eq!(&['a'], buf.rows[0].column());
         assert_eq!(&['b', 'c'], buf.rows[1].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -726,6 +915,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.split_row(&(0, 0));
 
@@ -733,6 +923,7 @@ mod tests {
         assert!(buf.rows[0].is_empty());
         assert_eq!(&['a', 'b', 'c'], buf.rows[1].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -740,6 +931,7 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.split_row(&(3, 0));
 
@@ -747,6 +939,7 @@ mod tests {
         assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
         assert!(buf.rows[1].is_empty());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -754,12 +947,14 @@ mod tests {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.split_row(&(1, 1));
 
         assert_eq!(1, buf.rows());
         assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -768,12 +963,14 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         buf.insert_row(&(0, 1), &['b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.squash_row(&(0, 1));
 
         assert_eq!(1, buf.rows());
         assert_eq!(&['a', 'b'], buf.rows[0].column());
         assert!(buf.cached());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -782,6 +979,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         buf.insert_row(&(0, 1), &['b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.squash_row(&(0, 0));
 
@@ -789,6 +987,7 @@ mod tests {
         assert_eq!(&['a'], buf.rows[0].column());
         assert_eq!(&['b'], buf.rows[1].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     #[test]
@@ -797,6 +996,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         buf.insert_row(&(0, 1), &['b']);
         buf.cached = false;
+        buf.history.clear();
 
         buf.squash_row(&(0, 2));
 
@@ -804,6 +1004,7 @@ mod tests {
         assert_eq!(&['a'], buf.rows[0].column());
         assert_eq!(&['b'], buf.rows[1].column());
         assert!(!buf.cached());
+        assert_eq!(0, buf.history.len());
     }
 
     // -------------------------------------------------------------------------------------------

@@ -178,6 +178,16 @@ impl<T: Terminal> Editor<T> {
                 self.save()?;
                 false
             }
+            Event::Key(KeyEvent::Undo, _) => {
+                if let Some(cur) = self.content.undo() {
+                    self.content_modified = true;
+                    self.cursor.set(&self.content, &cur);
+                    // FIXEDME: ???
+                    true
+                } else {
+                    false
+                }
+            }
             Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => self.input_char(ch),
             Event::Window(WindowEvent::Resize) => {
                 self.resize_screen()?;

@@ -35,6 +35,7 @@ pub enum KeyEvent {
     Find,
     Exit,
     Save,
+    Undo,
     // other
     Char(char),
 }
