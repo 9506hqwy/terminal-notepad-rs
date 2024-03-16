@@ -1,5 +1,5 @@
 use crate::buffer::{Buffer, Row};
-use crate::cursor::Coordinates;
+use crate::cursor::{AsCoordinates, Coordinates};
 use crate::error::Error;
 use crate::terminal::Terminal;
 use std::cmp::min;
@@ -10,6 +10,7 @@ pub struct Screen {
     top0: usize,
     height: usize,
     width: usize,
+    updated: bool,
 }
 
 impl Screen {
@@ -27,12 +28,19 @@ impl Screen {
 
     /// Clean the screen window.
     pub fn clear(&mut self, terminal: &mut impl Terminal) -> Result<(), Error> {
-        terminal.clear_screen()?;
+        terminal.scroll_up(self.height)?;
+        self.updated |= true;
         Ok(())
     }
 
     /// Draw screen.
-    pub fn draw(&self, content: &Buffer, terminal: &mut impl Terminal) -> Result<(), Error> {
+    pub fn draw(&mut self, content: &Buffer, terminal: &mut impl Terminal) -> Result<(), Error> {
+        if !self.updated && !content.updated() {
+            return Ok(());
+        }
+
+        self.clear(terminal)?;
+
         let end = min(content.rows(), self.bottom() + 1);
         for index in self.top0..end {
             let row = content.get(index).unwrap();
@@ -49,6 +57,7 @@ impl Screen {
             terminal.write(0, idx, &[char::from(b'~')], false)?;
         }
 
+        self.updated = false;
         Ok(())
     }
 
@@ -75,7 +84,13 @@ impl Screen {
             _ => {}
         }
 
+        self.updated |= cur != *self;
         cur != *self
+    }
+
+    /// Set need to update screen.
+    pub fn force_update(&mut self) {
+        self.updated |= true;
     }
 
     /// Returns the height of this screen.
@@ -86,6 +101,11 @@ impl Screen {
     /// Returns the coordinates index of this screen left.
     pub fn left(&self) -> usize {
         self.left0
+    }
+
+    /// Indicates need to update screen.
+    pub fn updated(&self) -> bool {
+        self.updated
     }
 
     /// Move down a height.
@@ -99,6 +119,7 @@ impl Screen {
             }
         }
 
+        self.updated |= cur != *self;
         cur != *self
     }
 
@@ -112,6 +133,7 @@ impl Screen {
             0
         };
 
+        self.updated |= cur != *self;
         cur != *self
     }
 
@@ -122,6 +144,7 @@ impl Screen {
         // - message bar
         self.height = height - 2;
         self.width = width;
+        self.updated |= true;
     }
 
     /// Returns the coordinates index of this screen right.
@@ -146,6 +169,8 @@ pub struct StatusBar {
     y0: usize,
     width: usize,
     filename: Option<String>,
+    position: (usize, usize),
+    updated: bool,
 }
 
 impl StatusBar {
@@ -154,12 +179,23 @@ impl StatusBar {
             y0: screen.height(),
             width: screen.width(),
             filename: filename.map(|f| f.to_string()),
+            position: (0, 0),
+            updated: true,
         }
     }
 
-    pub fn draw<P: Coordinates>(&self, pos: &P, terminal: &mut impl Terminal) -> Result<(), Error> {
+    pub fn draw(&mut self, terminal: &mut impl Terminal) -> Result<(), Error> {
+        if !self.updated {
+            return Ok(());
+        }
+
         let filename = self.filename.as_deref().unwrap_or("<buffered>");
-        let message = format!(" {:?}  {}:{}", filename, pos.y() + 1, pos.x() + 1);
+        let message = format!(
+            " {:?}  {}:{}",
+            filename,
+            self.position.0 + 1,
+            self.position.1 + 1
+        );
         let mut buffer = Row::from(message.chars().collect::<Vec<char>>());
         buffer.truncate_width(self.width);
 
@@ -169,16 +205,29 @@ impl StatusBar {
 
         terminal.write(0, self.y0, buffer.column(), true)?;
 
+        self.updated = false;
         Ok(())
     }
 
     pub fn resize(&mut self, screen: &Screen) {
         self.y0 = screen.height();
         self.width = screen.width();
+        self.updated |= true;
+    }
+
+    pub fn set_cursor<P: AsCoordinates>(&mut self, pos: &P) {
+        let cur = self.position;
+        self.position = pos.as_coordinates();
+        self.updated |= cur != self.position;
     }
 
     pub fn set_filename(&mut self, filename: &str) {
         self.filename = Some(filename.to_string());
+        self.updated |= true;
+    }
+
+    pub fn updated(&self) -> bool {
+        self.updated
     }
 }
 
@@ -188,6 +237,7 @@ pub struct MessageBar {
     y0: usize,
     width: usize,
     message: Row,
+    updated: bool,
 }
 
 impl MessageBar {
@@ -196,20 +246,35 @@ impl MessageBar {
             y0: screen.height() + 1,
             width: screen.width(),
             message: Row::from(message.chars().collect::<Vec<char>>()),
+            updated: true,
         }
     }
 
-    pub fn draw(&self, terminal: &mut impl Terminal) -> Result<(), Error> {
+    pub fn draw(&mut self, terminal: &mut impl Terminal) -> Result<(), Error> {
+        if !self.updated {
+            return Ok(());
+        }
+
         let mut buffer = self.message.clone();
         buffer.truncate_width(self.width);
         terminal.write(0, self.y0, buffer.column(), false)?;
 
+        self.updated = false;
         Ok(())
+    }
+
+    pub fn force_update(&mut self) {
+        self.updated |= true;
     }
 
     pub fn resize(&mut self, screen: &Screen) {
         self.y0 = screen.height() + 1;
         self.width = screen.width();
+        self.updated |= true;
+    }
+
+    pub fn updated(&self) -> bool {
+        self.updated
     }
 }
 
@@ -233,6 +298,7 @@ mod tests {
         assert_eq!(7, screen.bottom());
         assert_eq!(8, screen.height());
         assert_eq!(20, screen.width());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -240,21 +306,27 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(1, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         screen.clear(&mut null).unwrap();
+
+        assert!(screen.updated());
     }
 
     #[test]
     fn screen_draw() {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
-        let screen = Screen::current(&null).unwrap();
+        let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd', 'e']);
         buf.insert_row(&(0, 1), &['f', 'g', 'h', 'i', 'j']);
 
         screen.draw(&buf, &mut null).unwrap();
+
+        assert!(!screen.updated());
     }
 
     #[test]
@@ -262,6 +334,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd', 'e']);
@@ -272,6 +345,7 @@ mod tests {
         assert!(moved);
         assert_eq!(2, screen.left());
         assert_eq!(0, screen.top());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -279,6 +353,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
         screen.left0 = 2;
         screen.top0 = 0;
 
@@ -291,6 +366,7 @@ mod tests {
         assert!(moved);
         assert_eq!(1, screen.left());
         assert_eq!(0, screen.top());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -298,6 +374,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
         screen.left0 = 2;
         screen.top0 = 0;
 
@@ -309,6 +386,7 @@ mod tests {
         assert!(moved);
         assert_eq!(7, screen.left());
         assert_eq!(0, screen.top());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -316,6 +394,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd', 'e']);
@@ -326,6 +405,7 @@ mod tests {
         assert!(moved);
         assert_eq!(0, screen.left());
         assert_eq!(1, screen.top());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -333,6 +413,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
         screen.left0 = 1;
         screen.top0 = 1;
 
@@ -345,6 +426,7 @@ mod tests {
         assert!(moved);
         assert_eq!(1, screen.left());
         assert_eq!(0, screen.top());
+        assert!(screen.updated());
     }
 
     #[test]
@@ -352,6 +434,7 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(3, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd', 'e']);
@@ -362,6 +445,7 @@ mod tests {
         assert!(!moved);
         assert_eq!(0, screen.left());
         assert_eq!(0, screen.top());
+        assert!(!screen.updated());
     }
 
     #[test]
@@ -373,12 +457,14 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(1, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let moved = screen.move_down(&buf);
 
+        assert!(moved);
         assert_eq!(0, screen.left());
         assert_eq!(1, screen.top());
-        assert!(moved);
+        assert!(screen.updated());
     }
 
     #[test]
@@ -390,13 +476,15 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(1, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
         screen.top0 = 2;
 
         let moved = screen.move_down(&buf);
 
+        assert!(!moved);
         assert_eq!(0, screen.left());
         assert_eq!(2, screen.top());
-        assert!(!moved);
+        assert!(!screen.updated());
     }
 
     #[test]
@@ -404,13 +492,15 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(1, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
         screen.top0 = 1;
 
         let moved = screen.move_up();
 
+        assert!(moved);
         assert_eq!(0, screen.left());
         assert_eq!(0, screen.top());
-        assert!(moved);
+        assert!(screen.updated());
     }
 
     #[test]
@@ -418,12 +508,14 @@ mod tests {
         let mut null = terminal::Null::default();
         null.set_screen_size(1, 3);
         let mut screen = Screen::current(&null).unwrap();
+        screen.updated = false;
 
         let moved = screen.move_up();
 
+        assert!(!moved);
         assert_eq!(0, screen.left());
         assert_eq!(0, screen.top());
-        assert!(!moved);
+        assert!(!screen.updated());
     }
 
     // -------------------------------------------------------------------------------------------
@@ -434,9 +526,10 @@ mod tests {
         null.set_screen_size(3, 3);
         let screen = Screen::current(&null).unwrap();
 
-        let bar = StatusBar::new(&screen, None);
+        let mut bar = StatusBar::new(&screen, None);
 
-        bar.draw(&(0, 0), &mut null).unwrap();
+        bar.set_cursor(&(0, 0));
+        bar.draw(&mut null).unwrap();
     }
 
     // -------------------------------------------------------------------------------------------
@@ -447,7 +540,7 @@ mod tests {
         null.set_screen_size(3, 3);
         let screen = Screen::current(&null).unwrap();
 
-        let bar = MessageBar::new(&screen, "");
+        let mut bar = MessageBar::new(&screen, "");
 
         bar.draw(&mut null).unwrap();
     }

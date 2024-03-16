@@ -30,6 +30,8 @@ pub trait Terminal {
 
     fn get_screen_size(&self) -> Result<(usize, usize), Error>;
 
+    fn scroll_up(&self, height: usize) -> Result<(), Error>;
+
     fn set_cursor_position(&mut self, x: usize, y: usize) -> Result<(), Error>;
 
     fn set_text_attribute(&mut self, x: usize, y: usize, length: usize) -> Result<(), Error>;
@@ -65,6 +67,10 @@ impl Terminal for WindowsCon {
 
     fn get_screen_size(&self) -> Result<(usize, usize), Error> {
         windows::get_screen_size()
+    }
+
+    fn scroll_up(&self, height: usize) -> Result<(), Error> {
+        windows::scroll_up_buffer(height)
     }
 
     fn set_cursor_position(&mut self, x: usize, y: usize) -> Result<(), Error> {
@@ -118,6 +124,10 @@ impl Terminal for Null {
 
     fn get_screen_size(&self) -> Result<(usize, usize), Error> {
         Ok(self.screen)
+    }
+
+    fn scroll_up(&self, height: usize) -> Result<(), Error> {
+        Ok(())
     }
 
     fn set_cursor_position(&mut self, x: usize, y: usize) -> Result<(), Error> {

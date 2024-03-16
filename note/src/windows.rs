@@ -40,7 +40,8 @@ pub fn alternate_screen_buffer() -> Result<HANDLE, Error> {
 
 pub fn clear_screen() -> Result<(), Error> {
     // https://learn.microsoft.com/en-us/windows/console/clearing-the-screen
-    scroll_up_whole_buffer()?;
+    let info = get_stdout_buffer_info()?;
+    scroll_up_buffer(info.dwSize.Y as usize)?;
     set_cursor_position(0, 0)?;
     Ok(())
 }
@@ -153,6 +154,28 @@ pub fn read_event() -> Result<Event, Error> {
     }
 }
 
+pub fn scroll_up_buffer(height: usize) -> Result<(), Error> {
+    // https://learn.microsoft.com/en-us/windows/console/scrollconsolescreenbuffer
+    let info = get_stdout_buffer_info()?;
+    let rect = SMALL_RECT {
+        Right: info.dwSize.X,
+        Bottom: height as i16 - 1,
+        ..Default::default()
+    };
+    let origin = COORD {
+        X: 0,
+        Y: 0 - height as i16,
+    };
+    let fill = CHAR_INFO {
+        Attributes: info.wAttributes.0,
+        Char: CHAR_INFO_0 {
+            AsciiChar: b' ' as i8,
+        },
+    };
+    unsafe { ScrollConsoleScreenBufferA(stdout()?, &rect, None, origin, &fill) }?;
+    Ok(())
+}
+
 pub fn set_cursor_position(x: usize, y: usize) -> Result<(), Error> {
     // https://learn.microsoft.com/en-us/windows/console/setconsolecursorposition
     let pos = COORD {
@@ -227,28 +250,6 @@ fn get_stdout_buffer_info() -> Result<CONSOLE_SCREEN_BUFFER_INFO, Error> {
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe { GetConsoleScreenBufferInfo(stdout()?, &mut info) }?;
     Ok(info)
-}
-
-fn scroll_up_whole_buffer() -> Result<(), Error> {
-    // https://learn.microsoft.com/en-us/windows/console/scrollconsolescreenbuffer
-    let info = get_stdout_buffer_info()?;
-    let rect = SMALL_RECT {
-        Right: info.dwSize.X,
-        Bottom: info.dwSize.Y,
-        ..Default::default()
-    };
-    let origin = COORD {
-        X: 0,
-        Y: 0 - info.dwSize.Y,
-    };
-    let fill = CHAR_INFO {
-        Attributes: info.wAttributes.0,
-        Char: CHAR_INFO_0 {
-            AsciiChar: b' ' as i8,
-        },
-    };
-    unsafe { ScrollConsoleScreenBufferA(stdout()?, &rect, None, origin, &fill) }?;
-    Ok(())
 }
 
 fn stdin() -> Result<HANDLE, Error> {

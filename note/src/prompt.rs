@@ -13,7 +13,7 @@ pub trait Prompt<T: Terminal> {
     }
 
     fn handle_events(&mut self) -> Result<Option<String>, Error> {
-        let prompt = MessageBar::new(self.screen(), self.message());
+        let mut prompt = MessageBar::new(self.screen(), self.message());
 
         prompt.draw(self.terminal())?;
         let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
@@ -235,9 +235,12 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
     }
 
     fn clear_screen(&mut self) -> Result<(), Error> {
-        self.screen.clear(self.terminal)?;
+        // Delete text decoration.
+        self.screen.force_update();
+
         self.screen.draw(self.content, self.terminal)?;
-        self.status.draw(self.current, self.terminal)?;
+        self.status.set_cursor(self.current);
+        self.status.draw(self.terminal)?;
         Ok(())
     }
 

@@ -16,14 +16,10 @@ const TEXT_MESSAGE_MENU: &str = "^Q:Quit ^S:Save ^F:Find";
 
 pub struct Editor<T: Terminal> {
     cursor: Cursor,
-    cursor_modified: bool,
     content: Buffer,
-    content_modified: bool,
     terminal: T,
     screen: Screen,
-    screen_modified: bool,
     status: StatusBar,
-    status_modified: bool,
     message: MessageBar,
 }
 
@@ -36,14 +32,10 @@ impl<T: Terminal> Editor<T> {
 
         Ok(Editor {
             cursor: Cursor::default(),
-            cursor_modified: false,
             content,
-            content_modified: false,
             terminal,
             screen,
-            screen_modified: false,
             status,
-            status_modified: false,
             message,
         })
     }
@@ -51,7 +43,9 @@ impl<T: Terminal> Editor<T> {
     pub fn confirm_exit(&mut self) -> Result<bool, Error> {
         let mut prompt =
             prompt::YesNo::new(TEXT_CONFIRM_KILL_BUFFER, &self.screen, &mut self.terminal);
-        prompt.confirm()
+        let ret = prompt.confirm()?;
+        self.message.force_update();
+        Ok(ret)
     }
 
     pub fn content(&self) -> &Buffer {
@@ -72,7 +66,6 @@ impl<T: Terminal> Editor<T> {
 
                 let x = self.content.row_char_len(&at);
                 self.content.squash_row(&self.cursor);
-                self.content_modified = true;
 
                 let m1 = self.cursor.move_up(&self.content);
                 let m2 = self.cursor.set_x(&self.content, x);
@@ -80,8 +73,6 @@ impl<T: Terminal> Editor<T> {
             }
             _ => {
                 self.content.delete_char(&self.cursor);
-                self.content_modified = true;
-
                 self.cursor.move_left(&self.content)
             }
         }
@@ -89,7 +80,6 @@ impl<T: Terminal> Editor<T> {
 
     pub fn enter(&mut self) -> bool {
         self.content.split_row(&self.cursor);
-        self.content_modified = true;
 
         let m1 = self.cursor.move_to_x0();
         let m2 = self.cursor.move_down(&self.content);
@@ -105,9 +95,6 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn find(&mut self) -> Result<bool, Error> {
-        self.screen_modified = true;
-        self.status_modified = true;
-
         let ret;
         let moved;
         let src;
@@ -130,34 +117,51 @@ impl<T: Terminal> Editor<T> {
             self.cursor.set(&self.content, &src);
         }
 
+        // Delete text decoration.
+        self.screen.force_update();
+
+        self.message.force_update();
+
         Ok(moved)
     }
 
-    pub fn handle_events(&mut self) -> Result<bool, Error> {
-        self.content_modified = false;
-        self.screen_modified = false;
-        self.status_modified = false;
-        self.cursor_modified = match T::read_event_timeout()? {
-            Event::Key(KeyEvent::BackSpace, _) => self.delete_char(),
-            Event::Key(KeyEvent::Enter, _) => self.enter(),
-            Event::Key(KeyEvent::End, _) => self.cursor.move_to_xmax(&self.content),
+    pub fn handle_events(&mut self) -> Result<(), Error> {
+        match T::read_event_timeout()? {
+            Event::Key(KeyEvent::BackSpace, _) => {
+                self.delete_char();
+            }
+            Event::Key(KeyEvent::Enter, _) => {
+                self.enter();
+            }
+            Event::Key(KeyEvent::End, _) => {
+                self.cursor.move_to_xmax(&self.content);
+            }
             Event::Key(KeyEvent::PageUp, _) => {
-                self.screen_modified = self.screen.move_up();
-                self.cursor.move_up_screen(&self.content, &self.screen)
+                self.screen.move_up();
+                self.cursor.move_up_screen(&self.content, &self.screen);
             }
             Event::Key(KeyEvent::PageDown, _) => {
-                self.screen_modified = self.screen.move_down(&self.content);
-                self.cursor.move_down_screen(&self.content, &self.screen)
+                self.screen.move_down(&self.content);
+                self.cursor.move_down_screen(&self.content, &self.screen);
             }
-            Event::Key(KeyEvent::Home, _) => self.cursor.move_to_x0(),
-            Event::Key(KeyEvent::ArrowLeft, _) => self.cursor.move_left(&self.content),
-            Event::Key(KeyEvent::ArrowUp, _) => self.cursor.move_up(&self.content),
-            Event::Key(KeyEvent::ArrowRight, _) => self.cursor.move_right(&self.content),
-            Event::Key(KeyEvent::ArrowDown, _) => self.cursor.move_down(&self.content),
+            Event::Key(KeyEvent::Home, _) => {
+                self.cursor.move_to_x0();
+            }
+            Event::Key(KeyEvent::ArrowLeft, _) => {
+                self.cursor.move_left(&self.content);
+            }
+            Event::Key(KeyEvent::ArrowUp, _) => {
+                self.cursor.move_up(&self.content);
+            }
+            Event::Key(KeyEvent::ArrowRight, _) => {
+                self.cursor.move_right(&self.content);
+            }
+            Event::Key(KeyEvent::ArrowDown, _) => {
+                self.cursor.move_down(&self.content);
+            }
             Event::Key(KeyEvent::Delete, _) => {
-                let moved = self.cursor.move_right(&self.content);
+                self.cursor.move_right(&self.content);
                 self.delete_char();
-                moved
             }
             Event::Key(KeyEvent::DeleteRow, _) => {
                 if self.content.row_char_len(&self.cursor) == 0 {
@@ -165,37 +169,30 @@ impl<T: Terminal> Editor<T> {
                 } else {
                     self.content.shrink_row(&self.cursor);
                 }
-                self.content_modified = true;
-                // FIXEDME: ???
-                true
             }
-            Event::Key(KeyEvent::Find, _) => self.find()?,
+            Event::Key(KeyEvent::Find, _) => {
+                self.find()?;
+            }
             Event::Key(KeyEvent::Exit, _) => {
                 self.exit()?;
-                false
             }
             Event::Key(KeyEvent::Save, _) => {
                 self.save()?;
-                false
             }
             Event::Key(KeyEvent::Undo, _) => {
                 if let Some(cur) = self.content.undo() {
-                    self.content_modified = true;
                     self.cursor.set(&self.content, &cur);
-                    // FIXEDME: ???
-                    true
-                } else {
-                    false
                 }
             }
-            Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => self.input_char(ch),
+            Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => {
+                self.input_char(ch);
+            }
             Event::Window(WindowEvent::Resize) => {
                 self.resize_screen()?;
-                false
             }
-            _ => false,
+            _ => {}
         };
-        Ok(self.cursor_modified)
+        Ok(())
     }
 
     pub fn input_char(&mut self, ch: char) -> bool {
@@ -203,14 +200,17 @@ impl<T: Terminal> Editor<T> {
             (_, y) if self.content.rows() <= y => self.content.insert_row(&self.cursor, &[ch]),
             _ => self.content.insert_char(&self.cursor, ch),
         }
-        self.content_modified = true;
 
         self.cursor.move_right(&self.content)
     }
 
     pub fn init(&mut self) -> Result<(), Error> {
         self.screen.draw(&self.content, &mut self.terminal)?;
-        self.status.draw(&self.cursor, &mut self.terminal)?;
+        *self.content.updated_mut() = false;
+
+        self.status.set_cursor(&self.cursor);
+        self.status.draw(&mut self.terminal)?;
+
         self.message.draw(&mut self.terminal)?;
 
         self.terminal.set_cursor_position(0, 0)?;
@@ -221,15 +221,12 @@ impl<T: Terminal> Editor<T> {
     pub fn refresh(&mut self) -> Result<(), Error> {
         let render = self.cursor.render(&self.content);
 
-        if self.screen.fit(&self.content, &render) || self.content_modified || self.screen_modified
-        {
-            self.screen.clear(&mut self.terminal)?;
-            self.screen.draw(&self.content, &mut self.terminal)?;
-        }
+        self.screen.fit(&self.content, &render);
+        self.screen.draw(&self.content, &mut self.terminal)?;
+        *self.content.updated_mut() = false;
 
-        if self.cursor_modified || self.status_modified {
-            self.status.draw(&render, &mut self.terminal)?;
-        }
+        self.status.set_cursor(&render);
+        self.status.draw(&mut self.terminal)?;
 
         self.message.draw(&mut self.terminal)?;
 
@@ -245,14 +242,8 @@ impl<T: Terminal> Editor<T> {
         let (width, height) = self.terminal.get_screen_size()?;
 
         if self.screen.width() != width || self.screen.height() != height {
-            self.content_modified = true;
-
             self.screen.resize(height, width);
-            self.screen_modified = true;
-
             self.status.resize(&self.screen);
-            self.status_modified = true;
-
             self.message.resize(&self.screen);
         }
 
@@ -275,8 +266,9 @@ impl<T: Terminal> Editor<T> {
                 self.content.set_filename(&path);
                 self.status
                     .set_filename(path.file_name().and_then(|n| n.to_str()).unwrap());
-                self.status_modified = true;
             }
+
+            self.message.force_update();
         }
 
         Ok(())
