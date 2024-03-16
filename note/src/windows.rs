@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
+use crate::Color;
 use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE};
 use windows::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
 use windows::Win32::System::Console::{
@@ -199,20 +200,24 @@ pub fn set_text_attribute(x: usize, y: usize, length: usize) -> Result<(), Error
     Ok(())
 }
 
-pub fn write_console(x: usize, y: usize, row: &[char], rev: bool) -> Result<(), Error> {
+pub fn write_console(
+    x: usize,
+    y: usize,
+    row: &[char],
+    color: Color,
+    rev: bool,
+) -> Result<(), Error> {
     let info = get_stdout_buffer_info()?;
 
     // https://learn.microsoft.com/en-us/windows/console/setconsoletextattribute
-    let attr = info.wAttributes
+    let attr = CONSOLE_CHARACTER_ATTRIBUTES(color as u16)
         | if rev {
             COMMON_LVB_REVERSE_VIDEO
         } else {
             CONSOLE_CHARACTER_ATTRIBUTES(0)
         };
 
-    if rev {
-        unsafe { SetConsoleTextAttribute(stdout()?, attr) }?;
-    }
+    unsafe { SetConsoleTextAttribute(stdout()?, attr) }?;
 
     // https://learn.microsoft.com/en-us/windows/console/fillconsoleoutputcharacter
     let width = (info.srWindow.Right as u32) - x as u32;
@@ -228,9 +233,7 @@ pub fn write_console(x: usize, y: usize, row: &[char], rev: bool) -> Result<(), 
     let buffer = row.iter().collect::<String>();
     unsafe { WriteConsoleA(stdout()?, buffer.as_bytes(), None, None) }?;
 
-    if rev {
-        unsafe { SetConsoleTextAttribute(stdout()?, info.wAttributes) }?;
-    }
+    unsafe { SetConsoleTextAttribute(stdout()?, info.wAttributes) }?;
 
     Ok(())
 }

@@ -9,3 +9,15 @@ pub mod screen;
 pub mod terminal;
 
 mod windows;
+
+// https://learn.microsoft.com/en-us/windows/console/char-info-str
+#[derive(Clone, Copy, Debug)]
+pub enum Color {
+    Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Magenta = 5,
+    Yellow = 6,
+    White = 7,
+}

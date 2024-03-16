@@ -2,6 +2,7 @@ use crate::buffer::{Buffer, Row};
 use crate::cursor::{AsCoordinates, Coordinates};
 use crate::error::Error;
 use crate::terminal::Terminal;
+use crate::Color;
 use std::cmp::min;
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -54,13 +55,26 @@ impl Screen {
 
             if !buffer.is_empty() {
                 let idx = index - self.top0;
-                terminal.write(0, idx, buffer.column(), false)?;
+
+                if let Some(comment) = buffer.column().iter().position(|&ch| ch == '#') {
+                    let line = buffer.column().split_at(comment);
+                    terminal.write(0, idx, line.0, Color::White, false)?;
+                    terminal.write(
+                        buffer.width_range(0..comment),
+                        idx,
+                        line.1,
+                        Color::Yellow,
+                        false,
+                    )?;
+                } else {
+                    terminal.write(0, idx, buffer.column(), Color::White, false)?;
+                }
             }
         }
 
         for index in end..=self.bottom() {
             let idx = index - self.top0;
-            terminal.write(0, idx, &[char::from(b'~')], false)?;
+            terminal.write(0, idx, &[char::from(b'~')], Color::White, false)?;
         }
 
         self.updated = false;
@@ -209,7 +223,7 @@ impl StatusBar {
             buffer.append(&[char::from(b' ')]);
         }
 
-        terminal.write(0, self.y0, buffer.column(), true)?;
+        terminal.write(0, self.y0, buffer.column(), Color::White, true)?;
 
         self.updated = false;
         Ok(())
@@ -244,6 +258,7 @@ pub struct MessageBar {
     width: usize,
     message: Row,
     updated: bool,
+    fg_color: Color,
 }
 
 impl MessageBar {
@@ -253,6 +268,7 @@ impl MessageBar {
             width: screen.width(),
             message: Row::from(message.chars().collect::<Vec<char>>()),
             updated: true,
+            fg_color: Color::White,
         }
     }
 
@@ -263,7 +279,7 @@ impl MessageBar {
 
         let mut buffer = self.message.clone();
         buffer.truncate_width(self.width);
-        terminal.write(0, self.y0, buffer.column(), false)?;
+        terminal.write(0, self.y0, buffer.column(), self.fg_color, false)?;
 
         self.updated = false;
         Ok(())
@@ -277,6 +293,10 @@ impl MessageBar {
         self.y0 = screen.height() + 1;
         self.width = screen.width();
         self.updated |= true;
+    }
+
+    pub fn set_fg_color(&mut self, color: Color) {
+        self.fg_color = color;
     }
 
     pub fn updated(&self) -> bool {

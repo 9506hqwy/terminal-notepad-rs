@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::windows;
+use crate::Color;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;
@@ -36,7 +37,14 @@ pub trait Terminal {
 
     fn set_text_attribute(&mut self, x: usize, y: usize, length: usize) -> Result<(), Error>;
 
-    fn write(&mut self, x: usize, y: usize, row: &[char], rev: bool) -> Result<(), Error>;
+    fn write(
+        &mut self,
+        x: usize,
+        y: usize,
+        row: &[char],
+        color: Color,
+        rev: bool,
+    ) -> Result<(), Error>;
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -81,8 +89,15 @@ impl Terminal for WindowsCon {
         windows::set_text_attribute(x, y, length)
     }
 
-    fn write(&mut self, x: usize, y: usize, row: &[char], rev: bool) -> Result<(), Error> {
-        windows::write_console(x, y, row, rev)
+    fn write(
+        &mut self,
+        x: usize,
+        y: usize,
+        row: &[char],
+        color: Color,
+        rev: bool,
+    ) -> Result<(), Error> {
+        windows::write_console(x, y, row, color, rev)
     }
 }
 
@@ -139,7 +154,14 @@ impl Terminal for Null {
         Ok(())
     }
 
-    fn write(&mut self, x: usize, y: usize, row: &[char], rev: bool) -> Result<(), Error> {
+    fn write(
+        &mut self,
+        x: usize,
+        y: usize,
+        row: &[char],
+        color: Color,
+        rev: bool,
+    ) -> Result<(), Error> {
         Ok(())
     }
 }

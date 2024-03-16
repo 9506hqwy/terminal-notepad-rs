@@ -4,6 +4,7 @@ use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
+use crate::Color;
 use std::cmp::min;
 
 pub trait Prompt<T: Terminal> {
@@ -14,6 +15,7 @@ pub trait Prompt<T: Terminal> {
 
     fn handle_events(&mut self) -> Result<Option<String>, Error> {
         let mut prompt = MessageBar::new(self.screen(), self.message());
+        prompt.set_fg_color(Color::Cyan);
 
         prompt.draw(self.terminal())?;
         let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
@@ -44,7 +46,7 @@ pub trait Prompt<T: Terminal> {
             prompt.draw(self.terminal())?;
             chars.truncate_width(self.screen().width() - prompt_x - 1);
             self.terminal()
-                .write(prompt_x, prompt_y, chars.column(), false)?;
+                .write(prompt_x, prompt_y, chars.column(), Color::White, false)?;
             event = self.read_event_timeout()?;
         }
 
