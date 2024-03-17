@@ -1,7 +1,7 @@
 use crate::buffer::Buffer;
 use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
-use crate::key_event::{Event, KeyEvent, WindowEvent};
+use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
 use crate::prompt::{self, Prompt};
 use crate::screen::{MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
@@ -19,6 +19,7 @@ pub struct Editor<T: Terminal> {
     content: Buffer,
     terminal: T,
     screen: Screen,
+    select: Select,
     status: StatusBar,
     message: MessageBar,
 }
@@ -35,6 +36,7 @@ impl<T: Terminal> Editor<T> {
             content,
             terminal,
             screen,
+            select: Select::default(),
             status,
             message,
         })
@@ -126,7 +128,8 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn handle_events(&mut self) -> Result<(), Error> {
-        match T::read_event_timeout()? {
+        let event = T::read_event_timeout()?;
+        match event {
             Event::Key(KeyEvent::BackSpace, _) => {
                 self.delete_char();
             }
@@ -148,13 +151,19 @@ impl<T: Terminal> Editor<T> {
                 self.cursor.move_to_x0();
             }
             Event::Key(KeyEvent::ArrowLeft, _) => {
-                self.cursor.move_left(&self.content);
+                if !self.select.enabled() || self.cursor.x() != 0 {
+                    self.cursor.move_left(&self.content);
+                }
             }
             Event::Key(KeyEvent::ArrowUp, _) => {
                 self.cursor.move_up(&self.content);
             }
             Event::Key(KeyEvent::ArrowRight, _) => {
-                self.cursor.move_right(&self.content);
+                if !self.select.enabled()
+                    || self.cursor.x() != self.content.row_char_len(&self.cursor)
+                {
+                    self.cursor.move_right(&self.content);
+                }
             }
             Event::Key(KeyEvent::ArrowDown, _) => {
                 self.cursor.move_down(&self.content);
@@ -198,6 +207,8 @@ impl<T: Terminal> Editor<T> {
             }
             _ => {}
         };
+
+        self.update_select(event);
         Ok(())
     }
 
@@ -211,8 +222,10 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn init(&mut self) -> Result<(), Error> {
-        self.screen.draw(&self.content, &mut self.terminal)?;
+        self.screen
+            .draw(&self.content, &self.select, &mut self.terminal)?;
         self.content.clear_updated();
+        self.select.clear_updated();
 
         self.status.set_cursor(&self.cursor);
         self.status.draw(&mut self.terminal)?;
@@ -228,8 +241,10 @@ impl<T: Terminal> Editor<T> {
         let render = self.cursor.render(&self.content);
 
         self.screen.fit(&self.content, &render);
-        self.screen.draw(&self.content, &mut self.terminal)?;
+        self.screen
+            .draw(&self.content, &self.select, &mut self.terminal)?;
         self.content.clear_updated();
+        self.select.clear_updated();
 
         self.status.set_cursor(&render);
         self.status.draw(&mut self.terminal)?;
@@ -280,7 +295,127 @@ impl<T: Terminal> Editor<T> {
         Ok(())
     }
 
+    pub fn select(&self) -> &Select {
+        &self.select
+    }
+
     pub fn screen(&self) -> &Screen {
         &self.screen
     }
+
+    fn update_select(&mut self, event: Event) {
+        if let Event::Key(e, m) = event {
+            // TODO: multi rows support.
+            if m == KeyModifier::Shift && row_moved(e) {
+                if self.select.enabled {
+                    self.select.set_end(&self.cursor);
+                } else {
+                    self.select.set_start(&self.cursor);
+                }
+            } else {
+                self.select.disable();
+            }
+        } else {
+            self.select.disable();
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Select {
+    range: Option<(Cursor, Cursor)>,
+    enabled: bool,
+    updated: bool,
+}
+
+impl Select {
+    pub fn clear_updated(&mut self) {
+        self.updated = false;
+    }
+
+    pub fn disable(&mut self) {
+        let cur = self.clone();
+
+        if !self.enabled {
+            self.range = None;
+        }
+
+        self.enabled = false;
+
+        self.updated |= cur != *self;
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn end(&self) -> Option<&Cursor> {
+        if let (Some(s), Some(e)) = (
+            self.range.as_ref().map(|r| &r.0),
+            self.range.as_ref().map(|r| &r.1),
+        ) {
+            if s.x() < e.x() {
+                Some(e)
+            } else {
+                Some(s)
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn in_range(&self, y: usize) -> bool {
+        match &self.range {
+            Some(range) => range.0.y() <= y && y <= range.1.y(),
+            _ => false,
+        }
+    }
+
+    pub fn set_end(&mut self, end: &Cursor) {
+        let cur = self.clone();
+
+        self.range.as_mut().unwrap().1 = end.clone();
+
+        self.updated |= cur != *self;
+    }
+
+    pub fn set_start(&mut self, start: &Cursor) {
+        let cur = self.clone();
+
+        self.range = Some((start.clone(), start.clone()));
+        self.enabled = true;
+
+        self.updated |= cur != *self;
+    }
+
+    pub fn start(&self) -> Option<&Cursor> {
+        if let (Some(s), Some(e)) = (
+            self.range.as_ref().map(|r| &r.0),
+            self.range.as_ref().map(|r| &r.1),
+        ) {
+            if s.x() < e.x() {
+                Some(s)
+            } else {
+                Some(e)
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn updated(&self) -> bool {
+        self.updated
+    }
+}
+
+// -----------------------------------------------------------------------------------------------
+
+fn row_moved(key: KeyEvent) -> bool {
+    key == KeyEvent::ArrowLeft
+        || key == KeyEvent::ArrowRight
+        || key == KeyEvent::End
+        || key == KeyEvent::Home
+        || key == KeyEvent::Char('\0')
 }

@@ -1,5 +1,6 @@
 use crate::buffer::{Buffer, Row};
 use crate::cursor::{Coordinates, Cursor};
+use crate::editor::Select;
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::screen::{MessageBar, Screen, StatusBar};
@@ -278,7 +279,8 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
         // Delete text decoration.
         self.screen.force_update();
 
-        self.screen.draw(self.content, self.terminal)?;
+        self.screen
+            .draw(self.content, &Select::default(), self.terminal)?;
         self.status.set_cursor(self.current);
         self.status.draw(self.terminal)?;
         Ok(())

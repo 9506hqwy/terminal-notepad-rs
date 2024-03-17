@@ -1,3 +1,4 @@
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     Key(KeyEvent, KeyModifier),
     Window(WindowEvent),
@@ -15,6 +16,7 @@ impl From<WindowEvent> for Event {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum KeyEvent {
     // virtual key codes
     BackSpace,
@@ -41,11 +43,13 @@ pub enum KeyEvent {
     Char(char),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum KeyModifier {
     None,
     Shift,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum WindowEvent {
     Resize,
 }

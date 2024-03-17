@@ -1,9 +1,10 @@
 use crate::buffer::{Buffer, Row};
 use crate::cursor::{AsCoordinates, Coordinates};
+use crate::editor::Select;
 use crate::error::Error;
 use crate::terminal::Terminal;
 use crate::Color;
-use std::cmp::min;
+use std::cmp::{max, min};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Screen {
@@ -35,8 +36,13 @@ impl Screen {
     }
 
     /// Draw screen.
-    pub fn draw(&mut self, content: &Buffer, terminal: &mut impl Terminal) -> Result<(), Error> {
-        if !self.updated && !content.updated() {
+    pub fn draw(
+        &mut self,
+        content: &Buffer,
+        select: &Select,
+        terminal: &mut impl Terminal,
+    ) -> Result<(), Error> {
+        if !self.updated && !content.updated() && !select.updated() {
             return Ok(());
         }
 
@@ -46,7 +52,7 @@ impl Screen {
 
         let end = min(content.rows(), self.bottom() + 1);
         for index in self.top0..end {
-            if !self.updated && !content.row_updated(index) {
+            if !self.updated && !content.row_updated(index) && !select.in_range(index) {
                 continue;
             }
 
@@ -68,6 +74,20 @@ impl Screen {
                     )?;
                 } else {
                     terminal.write(0, idx, buffer.column(), Color::White, false)?;
+                }
+
+                if select.enabled() && select.in_range(index) {
+                    if let (Some(start), Some(end)) = (select.start(), select.end()) {
+                        let start = row.width_range(0..start.x());
+                        let end = min(row.width_range(0..end.x()), self.right());
+                        let x = if start < self.left0 {
+                            0
+                        } else {
+                            start - self.left0
+                        };
+                        let width = min(end - max(start, self.left0), self.width);
+                        terminal.set_text_attribute(x, index, width)?;
+                    }
                 }
             }
         }
@@ -350,7 +370,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd', 'e']);
         buf.insert_row(&(0, 1), &['f', 'g', 'h', 'i', 'j']);
 
-        screen.draw(&buf, &mut null).unwrap();
+        screen.draw(&buf, &Select::default(), &mut null).unwrap();
 
         assert!(!screen.updated());
     }

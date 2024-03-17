@@ -106,7 +106,7 @@ pub fn read_event() -> Result<Event, Error> {
         }
 
         // https://learn.microsoft.com/en-us/windows/console/key-event-record-str
-        let state = unsafe { buf[0].Event.KeyEvent.dwControlKeyState };
+        let state = unsafe { buf[0].Event.KeyEvent.dwControlKeyState } & SHIFT_PRESSED;
         let modifier = match state {
             SHIFT_PRESSED => KeyModifier::Shift,
             _ => KeyModifier::None,
@@ -149,6 +149,10 @@ pub fn read_event() -> Result<Event, Error> {
                     26 => return Ok(Event::from((KeyEvent::Undo, modifier))), // Ctrl+'Z'
                     _ => {}
                 }
+            }
+
+            if ch == '\0' && modifier == KeyModifier::None {
+                continue;
             }
 
             return Ok(Event::from((KeyEvent::Char(ch), modifier)));
