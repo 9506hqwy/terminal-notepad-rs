@@ -184,6 +184,13 @@ impl<T: Terminal> Editor<T> {
                     self.content.copy_pending(start..end);
                 }
             }
+            Event::Key(KeyEvent::Cut, _) => {
+                if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
+                    let length = end.x() - start.x();
+                    self.content.delete_chars(start, length);
+                    self.cursor.set(&self.content, start);
+                }
+            }
             Event::Key(KeyEvent::Find, _) => {
                 self.find()?;
             }

@@ -34,6 +34,7 @@ pub enum KeyEvent {
     F3,
     // ctrl modifier
     Copy,
+    Cut,
     DeleteRow,
     Find,
     Exit,

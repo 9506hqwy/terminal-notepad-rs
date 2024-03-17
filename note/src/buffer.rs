@@ -143,6 +143,7 @@ impl Buffer {
                 if let Some(text) = row.remove_range(at.x()..at.x() + length) {
                     self.cached = true;
                     self.updated.push(at.y()..at.y() + 1);
+                    self.pending = Some(Row::from(text.as_slice()));
                     return Some(text);
                 }
             }
