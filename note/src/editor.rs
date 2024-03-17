@@ -179,6 +179,11 @@ impl<T: Terminal> Editor<T> {
                     self.content.shrink_row(&self.cursor);
                 }
             }
+            Event::Key(KeyEvent::Copy, _) => {
+                if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
+                    self.content.copy_pending(start..end);
+                }
+            }
             Event::Key(KeyEvent::Find, _) => {
                 self.find()?;
             }

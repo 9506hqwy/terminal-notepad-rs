@@ -138,6 +138,7 @@ pub fn read_event() -> Result<Event, Error> {
                 // https://doc.rust-lang.org/std/ascii/enum.Char.html
                 match ch as u8 {
                     1 => return Ok(Event::from((KeyEvent::Home, modifier))), // Ctrl+'A'
+                    3 => return Ok(Event::from((KeyEvent::Copy, modifier))), // Ctrl+'C'
                     5 => return Ok(Event::from((KeyEvent::End, modifier))),  // Ctrl+'E'
                     6 => return Ok(Event::from((KeyEvent::Find, modifier))), // Ctrl+'F'
                     11 => return Ok(Event::from((KeyEvent::DeleteRow, modifier))), // Ctrl+'K'

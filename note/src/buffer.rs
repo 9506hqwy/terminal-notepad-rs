@@ -73,6 +73,13 @@ impl Buffer {
         self.updated.clear();
     }
 
+    pub fn copy_pending(&mut self, range: Range<&Cursor>) {
+        if let Some(row) = self.rows.get(range.start.y()) {
+            let r = &row.column()[range.start.x()..range.end.x()];
+            self.pending = Some(Row::from(r));
+        }
+    }
+
     pub fn delete_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
         let row = self.delete_row_bypass(at);
         if let Some(r) = row.as_ref() {
@@ -657,6 +664,32 @@ mod tests {
         assert!(!buf.cached());
         assert!(!buf.updated());
         assert_eq!(0, buf.history.len());
+    }
+
+    #[test]
+    fn buffer_copy_pending() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        init_screen(&mut buf);
+
+        let s = Cursor::from((0, 0));
+        let e = Cursor::from((1, 0));
+        buf.copy_pending(&s..&e);
+
+        assert_eq!(&['a'], buf.pending.unwrap().column());
+    }
+
+    #[test]
+    fn buffer_copy_pending_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        init_screen(&mut buf);
+
+        let s = Cursor::from((0, 1));
+        let e = Cursor::from((1, 1));
+        buf.copy_pending(&s..&e);
+
+        assert!(buf.pending.is_none());
     }
 
     #[test]
