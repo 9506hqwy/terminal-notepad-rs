@@ -172,7 +172,7 @@ impl Buffer {
 
     pub fn insert_row_bypass<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
         self.cached = true;
-        self.updated.push(at.y()..self.rows());
+        self.updated.push(at.y()..self.rows() + 1);
         self.rows.insert(at.y(), Row::from(text));
     }
 
@@ -338,7 +338,7 @@ impl Buffer {
         let row_len = self.rows();
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
-            self.updated.push(at.y()..row_len);
+            self.updated.push(at.y()..row_len + 1);
 
             let next = row.split_off(at.x());
 
