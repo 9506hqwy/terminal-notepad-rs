@@ -34,6 +34,7 @@ pub enum KeyEvent {
     DeleteRow,
     Find,
     Exit,
+    Paste,
     Save,
     Undo,
     // other

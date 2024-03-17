@@ -179,6 +179,12 @@ impl<T: Terminal> Editor<T> {
             Event::Key(KeyEvent::Save, _) => {
                 self.save()?;
             }
+            Event::Key(KeyEvent::Paste, _) => {
+                if let Some(row_len) = self.content.pending().map(|r| r.len()) {
+                    self.content.paste_pending(&self.cursor);
+                    self.cursor.set_x(&self.content, self.cursor.x() + row_len);
+                }
+            }
             Event::Key(KeyEvent::Undo, _) => {
                 if let Some(cur) = self.content.undo() {
                     self.cursor.set(&self.content, &cur);

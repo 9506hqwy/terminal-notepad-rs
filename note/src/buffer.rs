@@ -17,6 +17,7 @@ pub struct Buffer {
     cached: bool,
     updated: Vec<Range<usize>>,
     history: History<(usize, usize)>,
+    pending: Option<Row>,
 }
 
 impl TryFrom<Option<&Path>> for Buffer {
@@ -116,6 +117,33 @@ impl Buffer {
         None
     }
 
+    pub fn delete_chars<P: Coordinates + AsCoordinates>(&mut self, at: &P, length: usize) {
+        if let Some(text) = self.delete_chars_bypass(at, length) {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::DeleteChars(at.as_coordinates(), Row::from(text)),
+            );
+        }
+    }
+
+    pub fn delete_chars_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        length: usize,
+    ) -> Option<Vec<char>> {
+        if let Some(row) = self.rows.get_mut(at.y()) {
+            if at.x() < row.len() {
+                if let Some(text) = row.remove_range(at.x()..at.x() + length) {
+                    self.cached = true;
+                    self.updated.push(at.y()..at.y() + 1);
+                    return Some(text);
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn find_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
         let mut skip_x = at.x();
         for (y, c) in self.rows.iter().enumerate().skip(at.y()) {
@@ -174,6 +202,32 @@ impl Buffer {
         None
     }
 
+    pub fn insert_chars<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
+        if self.insert_chars_bypass(at, text).is_some() {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::InsertChars(at.as_coordinates(), text.len()),
+            );
+        }
+    }
+
+    pub fn insert_chars_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        text: &[char],
+    ) -> Option<(usize, usize)> {
+        if let Some(row) = self.rows.get_mut(at.y()) {
+            if at.x() <= row.len() {
+                self.cached = true;
+                self.updated.push(at.y()..at.y() + 1);
+                row.insert_slice(at.x(), text);
+                return Some((at.x(), at.y()));
+            }
+        }
+
+        None
+    }
+
     pub fn rfind_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
         let rkeyword = keyword.chars().rev().collect::<String>();
         let mut skip_x = if at.y() < self.rows() {
@@ -209,6 +263,16 @@ impl Buffer {
 
     pub fn rows(&self) -> usize {
         self.rows.len()
+    }
+
+    pub fn paste_pending<P: Coordinates + AsCoordinates>(&mut self, at: &P) {
+        if let Some(row) = self.pending.clone() {
+            self.insert_chars(at, row.column());
+        }
+    }
+
+    pub fn pending(&self) -> Option<&Row> {
+        self.pending.as_ref()
     }
 
     pub fn save(&mut self) -> Result<(), Error> {
@@ -253,7 +317,8 @@ impl Buffer {
         if let Some(row) = self.rows.get_mut(at.y()) {
             self.cached = true;
             self.updated.push(at.y()..at.y() + 1);
-            Some(row.split_off(at.x()))
+            self.pending = Some(row.split_off(at.x()));
+            self.pending.clone()
         } else {
             None
         }
@@ -326,12 +391,20 @@ impl Buffer {
                     self.insert_char_bypass(&(cord.0 - 1, cord.1), ch);
                     cur
                 }
+                (cur, Operation::DeleteChars(cord, row)) => {
+                    self.insert_chars_bypass(&cord, row.column());
+                    cur
+                }
                 (cur, Operation::DeleteRow(cord, row)) => {
                     self.insert_row_bypass(&cord, row.column());
                     cur
                 }
                 (cur, Operation::InsertChar(cord)) => {
                     self.delete_char_bypass(&(cord.0 + 1, cord.1));
+                    cur
+                }
+                (cur, Operation::InsertChars(cord, length)) => {
+                    self.delete_chars_bypass(&cord, length);
                     cur
                 }
                 (cur, Operation::InsertRow(cord)) => {
@@ -395,6 +468,14 @@ impl Row {
     pub fn insert(&mut self, index: usize, element: char) {
         if index <= self.column.len() {
             self.column.insert(index, element);
+        }
+    }
+
+    pub fn insert_slice(&mut self, index: usize, other: &[char]) {
+        if index <= self.column.len() {
+            let removed = self.column.split_off(index);
+            self.column.extend_from_slice(other);
+            self.column.extend(removed);
         }
     }
 
@@ -471,6 +552,14 @@ impl Row {
     pub fn remove(&mut self, index: usize) -> Option<char> {
         if index < self.column.len() {
             Some(self.column.remove(index))
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_range(&mut self, range: Range<usize>) -> Option<Vec<char>> {
+        if range.end <= self.column.len() {
+            Some(self.column.drain(range).collect())
         } else {
             None
         }
@@ -641,6 +730,48 @@ mod tests {
     }
 
     #[test]
+    fn buffer_delete_chars() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b']);
+        init_screen(&mut buf);
+
+        buf.delete_chars(&(1, 0), 1);
+
+        assert_eq!(&['a'], buf.rows[0].column());
+        assert!(buf.cached());
+        assert!(buf.updated());
+        assert_eq!(1, buf.history.len());
+    }
+
+    #[test]
+    fn buffer_delete_chars_xoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b']);
+        init_screen(&mut buf);
+
+        buf.delete_chars(&(3, 0), 1);
+
+        assert_eq!(&['a', 'b'], buf.rows[0].column());
+        assert!(!buf.cached());
+        assert!(!buf.updated());
+        assert_eq!(0, buf.history.len());
+    }
+
+    #[test]
+    fn buffer_delete_chars_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b']);
+        init_screen(&mut buf);
+
+        buf.delete_chars(&(1, 1), 1);
+
+        assert_eq!(&['a', 'b'], buf.rows[0].column());
+        assert!(!buf.cached());
+        assert!(!buf.updated());
+        assert_eq!(0, buf.history.len());
+    }
+
+    #[test]
     fn buffer_find_at_0() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
@@ -772,6 +903,48 @@ mod tests {
     }
 
     #[test]
+    fn buffer_insert_chars_0() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        init_screen(&mut buf);
+
+        buf.insert_chars(&(0, 0), &['b', 'c']);
+
+        assert_eq!(&['b', 'c', 'a'], buf.rows[0].column());
+        assert!(buf.cached());
+        assert!(buf.updated());
+        assert_eq!(1, buf.history.len());
+    }
+
+    #[test]
+    fn buffer_insert_chars_1() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        init_screen(&mut buf);
+
+        buf.insert_chars(&(1, 0), &['b', 'c']);
+
+        assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
+        assert!(buf.cached());
+        assert!(buf.updated());
+        assert_eq!(1, buf.history.len());
+    }
+
+    #[test]
+    fn buffer_insert_chars_xoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        init_screen(&mut buf);
+
+        buf.insert_chars(&(2, 0), &['b', 'c']);
+
+        assert_eq!(&['a'], buf.rows[0].column());
+        assert!(!buf.cached());
+        assert!(!buf.updated());
+        assert_eq!(0, buf.history.len());
+    }
+
+    #[test]
     fn buffer_insert_char_yoverflow() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
@@ -855,6 +1028,21 @@ mod tests {
         let len = buf.rows();
 
         assert_eq!(1, len);
+    }
+
+    #[test]
+    fn buffer_paste_pending() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a']);
+        buf.pending = Some(Row::from(&['b'][..]));
+        init_screen(&mut buf);
+
+        buf.paste_pending(&(0, 0));
+
+        assert_eq!(&['b', 'a'], buf.rows[0].column());
+        assert!(buf.cached());
+        assert!(buf.updated());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -1057,6 +1245,24 @@ mod tests {
     }
 
     #[test]
+    fn row_insert_slice() {
+        let mut buf = Row::default();
+
+        buf.insert_slice(0, &['a', 'b']);
+
+        assert_eq!(&['a', 'b'], buf.column());
+    }
+
+    #[test]
+    fn row_insert_slice_overflow() {
+        let mut buf = Row::default();
+
+        buf.insert_slice(1, &['a', 'b']);
+
+        assert!(buf.is_empty());
+    }
+
+    #[test]
     fn row_last_char_width_0() {
         let buf = Row::default();
 
@@ -1236,6 +1442,42 @@ mod tests {
         buf.remove(2);
 
         assert_eq!(&['a', 'b'], buf.column());
+    }
+
+    #[test]
+    fn row_remove_range_0() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        buf.remove_range(0..2);
+
+        assert_eq!(&['c'], buf.column());
+    }
+
+    #[test]
+    fn row_remove_range_1() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        buf.remove_range(1..2);
+
+        assert_eq!(&['a', 'c'], buf.column());
+    }
+
+    #[test]
+    fn row_remove_range_2() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        buf.remove_range(2..3);
+
+        assert_eq!(&['a', 'b'], buf.column());
+    }
+
+    #[test]
+    fn row_remove_range_overflow() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        buf.remove_range(0..4);
+
+        assert_eq!(&['a', 'b', 'c'], buf.column());
     }
 
     #[test]

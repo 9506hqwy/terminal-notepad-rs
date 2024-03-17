@@ -33,8 +33,10 @@ impl<P: Coordinates> History<P> {
 pub enum Operation<P: Coordinates> {
     Append(P),
     DeleteChar(P, char),
+    DeleteChars(P, Row),
     DeleteRow(P, Row),
     InsertChar(P),
+    InsertChars(P, usize),
     InsertRow(P),
     ShrinkRow(P, Row),
     SplitRow(P),
