@@ -10,6 +10,15 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[package.metadata.winres]
+FileDescription = "Terminal Notepad for Windows"
+LegalCopyright = "Copyright (c) 2024 9506hqwy"
+OriginalFilename = "note.exe"
+ProductName = "terminal-notepad-rs"
+
+[build-dependencies]
+winres = "0.1.12"
+
 [dependencies]
 unicode-width = "0.1.11"
 
