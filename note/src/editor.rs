@@ -12,6 +12,7 @@ const TEXT_CONFIRM_KILL_BUFFER: &str = "Buffer is modified. Kill buffer (y/N) : 
 
 const TEXT_MESSAGE_INPUT_FILENAME: &str = "Filename (ESC:quit): ";
 const TEXT_MESSAGE_INPUT_KEYWORD: &str = "Input keyword (ESC:quit F3:next S+F3:prev): ";
+const TEXT_MESSAGE_INPUT_LINENO: &str = "Go to line (ESC:quit): ";
 const TEXT_MESSAGE_MENU: &str = "^Q:Quit ^S:Save ^F:Find";
 
 pub struct Editor<T: Terminal> {
@@ -127,6 +128,25 @@ impl<T: Terminal> Editor<T> {
         Ok(moved)
     }
 
+    pub fn goto(&mut self) -> Result<bool, Error> {
+        let mut prompt =
+            prompt::Input::new(TEXT_MESSAGE_INPUT_LINENO, &self.screen, &mut self.terminal);
+
+        while let Some(lineno) = prompt.handle_events()? {
+            if let Ok(lineno) = lineno.parse::<usize>() {
+                if 0 < lineno && lineno <= self.content.rows() {
+                    let cur = self.cursor.clone();
+                    self.cursor.set_y(&self.content, lineno - 1);
+                    self.message.force_update();
+                    return Ok(cur != self.cursor);
+                }
+            }
+        }
+
+        self.message.force_update();
+        Ok(false)
+    }
+
     pub fn handle_events(&mut self) -> Result<(), Error> {
         let event = T::read_event_timeout()?;
         match event {
@@ -196,6 +216,9 @@ impl<T: Terminal> Editor<T> {
             }
             Event::Key(KeyEvent::Exit, _) => {
                 self.exit()?;
+            }
+            Event::Key(KeyEvent::Goto, _) => {
+                self.goto()?;
             }
             Event::Key(KeyEvent::Save, _) => {
                 self.save()?;

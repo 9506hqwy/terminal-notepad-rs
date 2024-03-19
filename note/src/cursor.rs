@@ -148,6 +148,7 @@ impl Cursor {
 
         self.y0 = y;
         self.move_to_ymax_ifoverflow(content);
+        self.move_to_xmax_ifoverflow(content);
 
         cur != *self
     }

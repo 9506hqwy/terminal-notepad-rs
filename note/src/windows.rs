@@ -141,6 +141,7 @@ pub fn read_event() -> Result<Event, Error> {
                     3 => return Ok(Event::from((KeyEvent::Copy, modifier))), // Ctrl+'C'
                     5 => return Ok(Event::from((KeyEvent::End, modifier))),  // Ctrl+'E'
                     6 => return Ok(Event::from((KeyEvent::Find, modifier))), // Ctrl+'F'
+                    7 => return Ok(Event::from((KeyEvent::Goto, modifier))), // Ctrl+'G'
                     11 => return Ok(Event::from((KeyEvent::DeleteRow, modifier))), // Ctrl+'K'
                     14 => return Ok(Event::from((KeyEvent::ArrowDown, modifier))), // Ctrl+'N'
                     16 => return Ok(Event::from((KeyEvent::ArrowUp, modifier))), // Ctrl+'P'

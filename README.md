@@ -18,6 +18,7 @@ This crate provides a minimum text editor in windows command prompt.
 | Ctrl+C | Copy text in selected area     |
 | Ctrl+E | Move cursor to end of line     |
 | Ctrl+F | Find text keyword              |
+| Ctrl+G | Go to line                     |
 | Ctrl+K | Cut text up to end of line     |
 | Ctrl+N | Move down cursor to below line |
 | Ctrl+P | Move up cursor to above line   |
