@@ -112,7 +112,14 @@ impl<T: Terminal> Editor<T> {
                 &mut self.terminal,
             );
 
-            ret = prompt.handle_events()?;
+            let row = if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
+                self.content.get_range(start..end)
+            } else {
+                None
+            };
+            self.select.disable();
+
+            ret = prompt.handle_events(row.map(|r| r.to_string_at(0)).as_deref())?;
             moved = prompt.source() != prompt.current();
             src = prompt.source().as_coordinates();
         }
@@ -133,7 +140,7 @@ impl<T: Terminal> Editor<T> {
         let mut prompt =
             prompt::Input::new(TEXT_MESSAGE_INPUT_LINENO, &self.screen, &mut self.terminal);
 
-        while let Some(lineno) = prompt.handle_events()? {
+        while let Some(lineno) = prompt.handle_events(None)? {
             if let Ok(lineno) = lineno.parse::<usize>() {
                 if 0 < lineno && lineno <= self.content.rows() {
                     let cur = self.cursor.clone();
@@ -336,7 +343,7 @@ impl<T: Terminal> Editor<T> {
                 &mut self.terminal,
             );
 
-            if let Some(filename) = prompt.handle_events()? {
+            if let Some(filename) = prompt.handle_events(None)? {
                 let path = PathBuf::from(filename);
                 self.content.save_as(&path)?;
                 self.content.set_filename(&path);

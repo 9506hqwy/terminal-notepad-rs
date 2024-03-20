@@ -30,7 +30,7 @@ impl TryFrom<Option<&Path>> for Buffer {
             let file = File::open(path)?;
             let reader = BufReader::new(file);
             for line in reader.lines() {
-                let chars = Row::from(line?.chars().collect::<Vec<char>>());
+                let chars = Row::from(line?);
                 buffer.rows.push(chars);
             }
         }
@@ -74,10 +74,7 @@ impl Buffer {
     }
 
     pub fn copy_pending(&mut self, range: Range<&Cursor>) {
-        if let Some(row) = self.rows.get(range.start.y()) {
-            let r = &row.column()[range.start.x()..range.end.x()];
-            self.pending = Some(Row::from(r));
-        }
+        self.pending = self.get_range(range);
     }
 
     pub fn delete_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
@@ -168,6 +165,15 @@ impl Buffer {
 
     pub fn get(&self, index: usize) -> Option<&Row> {
         self.rows.get(index)
+    }
+
+    pub fn get_range(&self, range: Range<&Cursor>) -> Option<Row> {
+        if let Some(row) = self.rows.get(range.start.y()) {
+            let r = &row.column()[range.start.x()..range.end.x()];
+            Some(Row::from(r))
+        } else {
+            None
+        }
     }
 
     pub fn insert_row<P: Coordinates + AsCoordinates>(&mut self, at: &P, text: &[char]) {
@@ -497,6 +503,22 @@ impl From<&[char]> for Row {
     fn from(value: &[char]) -> Self {
         Row {
             column: value.to_vec(),
+        }
+    }
+}
+
+impl From<String> for Row {
+    fn from(value: String) -> Self {
+        Row {
+            column: value.chars().collect(),
+        }
+    }
+}
+
+impl From<&str> for Row {
+    fn from(value: &str) -> Self {
+        Row {
+            column: value.chars().collect(),
         }
     }
 }

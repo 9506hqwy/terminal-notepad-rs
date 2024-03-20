@@ -236,7 +236,7 @@ impl StatusBar {
             self.position.0 + 1,
             self.position.1 + 1
         );
-        let mut buffer = Row::from(message.chars().collect::<Vec<char>>());
+        let mut buffer = Row::from(message);
         buffer.truncate_width(self.width);
 
         for _ in buffer.width()..self.width {
@@ -286,7 +286,7 @@ impl MessageBar {
         MessageBar {
             y0: screen.height() + 1,
             width: screen.width(),
-            message: Row::from(message.chars().collect::<Vec<char>>()),
+            message: Row::from(message),
             updated: true,
             fg_color: Color::White,
         }

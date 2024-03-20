@@ -20,15 +20,19 @@ pub trait Prompt<T: Terminal> {
         Ok(())
     }
 
-    fn handle_events(&mut self) -> Result<Option<String>, Error> {
+    fn handle_events(&mut self, value: Option<&str>) -> Result<Option<String>, Error> {
         let mut prompt = MessageBar::new(self.screen(), self.message());
         prompt.set_fg_color(Color::Cyan);
 
         prompt.draw(self.terminal())?;
         let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
-        let mut event = self.read_event_timeout()?;
 
-        let mut chars = Row::default();
+        let mut chars = value.map(Row::from).unwrap_or_default();
+        chars.truncate_width(self.screen().width() - prompt_x - 1);
+        self.terminal()
+            .write(prompt_x, prompt_y, chars.column(), Color::White, false)?;
+
+        let mut event = self.read_event_timeout()?;
         while match event {
             Event::Key(KeyEvent::BackSpace, _) => {
                 if !chars.is_empty() {
@@ -158,7 +162,7 @@ impl<'a, T: Terminal> YesNo<'a, T> {
 
     pub fn confirm(&mut self) -> Result<bool, Error> {
         loop {
-            if let Some(yes_no) = self.handle_events()? {
+            if let Some(yes_no) = self.handle_events(None)? {
                 let answer = yes_no.to_ascii_lowercase();
 
                 if answer == "y" || answer == "yes" {
@@ -425,7 +429,7 @@ impl<'a, T: Terminal> Replace<'a, T> {
                 if self.move_keyword_at_current(&source)? {
                     self.message =
                         format!("{}{} (y/n): ", &self.message, &replaced.to_string_at(0));
-                    while self.handle_events()?.is_some() {}
+                    while self.handle_events(None)?.is_some() {}
 
                     esc_at = self.current.clone();
                 }
@@ -443,12 +447,12 @@ impl<'a, T: Terminal> Replace<'a, T> {
     }
 
     fn input(&mut self) -> Result<Option<Row>, Error> {
-        while let Some(value) = self.handle_events()? {
+        while let Some(value) = self.handle_events(None)? {
             if value.is_empty() {
                 continue;
             }
 
-            let row = Row::from(value.chars().collect::<Vec<char>>());
+            let row = Row::from(value);
             return Ok(Some(row));
         }
 
