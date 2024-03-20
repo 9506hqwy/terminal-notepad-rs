@@ -38,6 +38,7 @@ pub enum Operation<P: Coordinates> {
     InsertChar(P),
     InsertChars(P, usize),
     InsertRow(P),
+    Replace(P, usize, Row),
     ShrinkRow(P, Row),
     SplitRow(P),
     SquashRow(P),

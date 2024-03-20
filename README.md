@@ -19,6 +19,7 @@ This crate provides a minimum text editor in windows command prompt.
 | Ctrl+E | Move cursor to end of line     |
 | Ctrl+F | Find text keyword              |
 | Ctrl+G | Go to line                     |
+| Ctrl+H | Replace text                   |
 | Ctrl+K | Cut text up to end of line     |
 | Ctrl+N | Move down cursor to below line |
 | Ctrl+P | Move up cursor to above line   |

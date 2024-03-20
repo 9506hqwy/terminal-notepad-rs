@@ -13,6 +13,7 @@ const TEXT_CONFIRM_KILL_BUFFER: &str = "Buffer is modified. Kill buffer (y/N) : 
 const TEXT_MESSAGE_INPUT_FILENAME: &str = "Filename (ESC:quit): ";
 const TEXT_MESSAGE_INPUT_KEYWORD: &str = "Input keyword (ESC:quit F3:next S+F3:prev): ";
 const TEXT_MESSAGE_INPUT_LINENO: &str = "Go to line (ESC:quit): ";
+const TEXT_MESSAGE_INPUT_REPLACE: &str = "Replace word (ESC:quit): ";
 const TEXT_MESSAGE_MENU: &str = "^Q:Quit ^S:Save ^F:Find";
 
 pub struct Editor<T: Terminal> {
@@ -229,6 +230,7 @@ impl<T: Terminal> Editor<T> {
                     self.cursor.set_x(&self.content, self.cursor.x() + row_len);
                 }
             }
+            Event::Key(KeyEvent::Replace, _) => self.replace()?,
             Event::Key(KeyEvent::Undo, _) => {
                 if let Some(cur) = self.content.undo() {
                     self.cursor.set(&self.content, &cur);
@@ -291,6 +293,24 @@ impl<T: Terminal> Editor<T> {
             render.y() - self.screen.top(),
         )?;
 
+        Ok(())
+    }
+
+    pub fn replace(&mut self) -> Result<(), Error> {
+        let mut prompt = prompt::Replace::new(
+            TEXT_MESSAGE_INPUT_REPLACE,
+            &mut self.cursor,
+            &mut self.content,
+            &mut self.screen,
+            &mut self.status,
+            &mut self.terminal,
+        );
+        prompt.replace()?;
+
+        // Delete text decoration.
+        self.screen.force_update();
+
+        self.message.force_update();
         Ok(())
     }
 

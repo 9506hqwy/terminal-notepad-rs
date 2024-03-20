@@ -40,6 +40,7 @@ pub enum KeyEvent {
     Exit,
     Goto,
     Paste,
+    Replace,
     Save,
     Undo,
     // other

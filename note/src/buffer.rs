@@ -236,6 +236,39 @@ impl Buffer {
         None
     }
 
+    pub fn replace<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        length: usize,
+        text: &[char],
+    ) -> Option<Row> {
+        let row = self.replace_bypass(at, length, text);
+        if let Some(r) = row.as_ref() {
+            self.history.record(
+                at.as_coordinates(),
+                Operation::Replace(at.as_coordinates(), text.len(), r.clone()),
+            );
+        }
+        row
+    }
+
+    pub fn replace_bypass<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        length: usize,
+        text: &[char],
+    ) -> Option<Row> {
+        if let Some(row) = self.rows.get_mut(at.y()) {
+            if let Some(removed) = row.replace(at.x(), length, text) {
+                self.cached = true;
+                self.updated.push(at.y()..at.y() + 1);
+                return Some(Row::from(removed));
+            }
+        }
+
+        None
+    }
+
     pub fn rfind_at<P: Coordinates>(&self, at: &P, keyword: &str) -> Option<(usize, usize)> {
         let rkeyword = keyword.chars().rev().collect::<String>();
         let mut skip_x = if at.y() < self.rows() {
@@ -419,6 +452,10 @@ impl Buffer {
                     self.delete_row_bypass(&cord);
                     cur
                 }
+                (cur, Operation::Replace(cord, length, row)) => {
+                    self.replace_bypass(&cord, length, row.column());
+                    cur
+                }
                 (cur, Operation::ShrinkRow(cord, row)) => {
                     self.append_row_bypass(&cord, row.column());
                     cur
@@ -469,6 +506,10 @@ impl Row {
         self.column.extend_from_slice(other)
     }
 
+    pub fn clear(&mut self) {
+        self.column.clear();
+    }
+
     pub fn column(&self) -> &[char] {
         &self.column
     }
@@ -500,6 +541,16 @@ impl Row {
 
     pub fn len(&self) -> usize {
         self.column.len()
+    }
+
+    pub fn replace(&mut self, index: usize, length: usize, other: &[char]) -> Option<Vec<char>> {
+        let stop = index + length;
+        if let Some(removed) = self.remove_range(index..stop) {
+            self.insert_slice(index, other);
+            Some(removed)
+        } else {
+            None
+        }
     }
 
     pub fn shrink_width(&mut self, min_width: usize) -> usize {
@@ -993,6 +1044,28 @@ mod tests {
     }
 
     #[test]
+    fn buffer_replace() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c']);
+        init_screen(&mut buf);
+
+        buf.replace(&(0, 0), 2, &['d']);
+
+        assert_eq!(&['d', 'c'], buf.rows[0].column());
+    }
+
+    #[test]
+    fn buffer_replace_yoverflow() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c']);
+        init_screen(&mut buf);
+
+        buf.replace(&(0, 1), 2, &['d']);
+
+        assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
+    }
+
+    #[test]
     fn buffer_rfind_at_0() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a', 'b', 'c']);
@@ -1261,6 +1334,16 @@ mod tests {
     }
 
     #[test]
+    fn row_clear() {
+        let mut buf = Row::default();
+        buf.append(&['a']);
+
+        buf.clear();
+
+        assert!(buf.column().is_empty());
+    }
+
+    #[test]
     fn row_insert() {
         let mut buf = Row::default();
 
@@ -1315,6 +1398,26 @@ mod tests {
         let buf = Row::from(&['あ'][..]);
 
         assert_eq!(2, buf.last_char_width());
+    }
+
+    #[test]
+    fn row_replace() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        let removed = buf.replace(1, 1, &['d']);
+
+        assert_eq!(&['a', 'd', 'c'], buf.column());
+        assert_eq!(Some(vec!['b']), removed);
+    }
+
+    #[test]
+    fn row_replace_overflow() {
+        let mut buf = Row::from(&['a', 'b', 'c'][..]);
+
+        let removed = buf.replace(1, 3, &['d']);
+
+        assert_eq!(&['a', 'b', 'c'], buf.column());
+        assert_eq!(None, removed);
     }
 
     #[test]
