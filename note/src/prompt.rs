@@ -161,23 +161,23 @@ impl<'a, T: Terminal> YesNo<'a, T> {
     }
 
     pub fn confirm(&mut self) -> Result<bool, Error> {
-        loop {
-            if let Some(yes_no) = self.handle_events(None)? {
-                let answer = yes_no.to_ascii_lowercase();
+        while let Some(yes_no) = self.handle_events(None)? {
+            let answer = yes_no.to_ascii_lowercase();
 
-                if answer == "y" || answer == "yes" {
-                    return Ok(true);
-                }
+            if answer == "y" || answer == "yes" {
+                return Ok(true);
+            }
 
-                if answer == "n" || answer == "no" {
-                    return Ok(false);
-                }
+            if answer == "n" || answer == "no" {
+                return Ok(false);
+            }
 
-                if answer.is_empty() {
-                    return Ok(false);
-                }
+            if answer.is_empty() {
+                return Ok(false);
             }
         }
+
+        Ok(false)
     }
 }
 
