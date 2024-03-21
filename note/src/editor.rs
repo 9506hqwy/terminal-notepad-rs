@@ -1,4 +1,4 @@
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, Row};
 use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
@@ -103,6 +103,9 @@ impl<T: Terminal> Editor<T> {
         let moved;
         let src;
         {
+            let row = self.get_selected_text();
+            self.select.disable();
+
             let mut prompt = prompt::FindKeyword::new(
                 TEXT_MESSAGE_INPUT_KEYWORD,
                 &mut self.cursor,
@@ -111,13 +114,6 @@ impl<T: Terminal> Editor<T> {
                 &mut self.status,
                 &mut self.terminal,
             );
-
-            let row = if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
-                self.content.get_range(start..end)
-            } else {
-                None
-            };
-            self.select.disable();
 
             ret = prompt.handle_events(row.map(|r| r.to_string_at(0)).as_deref())?;
             moved = prompt.source() != prompt.current();
@@ -304,6 +300,9 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn replace(&mut self) -> Result<(), Error> {
+        let row = self.get_selected_text();
+        self.select.disable();
+
         let mut prompt = prompt::Replace::new(
             TEXT_MESSAGE_INPUT_REPLACE,
             &mut self.cursor,
@@ -312,7 +311,7 @@ impl<T: Terminal> Editor<T> {
             &mut self.status,
             &mut self.terminal,
         );
-        prompt.replace()?;
+        prompt.replace(row.map(|r| r.to_string_at(0)).as_deref())?;
 
         // Delete text decoration.
         self.screen.force_update();
@@ -363,6 +362,14 @@ impl<T: Terminal> Editor<T> {
 
     pub fn screen(&self) -> &Screen {
         &self.screen
+    }
+
+    fn get_selected_text(&self) -> Option<Row> {
+        if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
+            self.content.get_range(start..end)
+        } else {
+            None
+        }
     }
 
     fn update_select(&mut self, event: Event) {

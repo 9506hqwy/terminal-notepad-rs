@@ -418,12 +418,12 @@ impl<'a, T: Terminal> Replace<'a, T> {
         }
     }
 
-    pub fn replace(&mut self) -> Result<(), Error> {
+    pub fn replace(&mut self, value: Option<&str>) -> Result<(), Error> {
         let mut esc_at = self.source.clone();
 
-        if let Some(source) = self.input()? {
+        if let Some(source) = self.input(value)? {
             self.message = format!("{} {} -> ", &self.message, &source.to_string_at(0));
-            if let Some(replaced) = self.input()? {
+            if let Some(replaced) = self.input(None)? {
                 self.keywords = Some((source.clone(), replaced.clone()));
 
                 if self.move_keyword_at_current(&source)? {
@@ -446,8 +446,8 @@ impl<'a, T: Terminal> Replace<'a, T> {
         Ok(())
     }
 
-    fn input(&mut self) -> Result<Option<Row>, Error> {
-        while let Some(value) = self.handle_events(None)? {
+    fn input(&mut self, value: Option<&str>) -> Result<Option<Row>, Error> {
+        while let Some(value) = self.handle_events(value)? {
             if value.is_empty() {
                 continue;
             }
