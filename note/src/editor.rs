@@ -3,7 +3,7 @@ use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
 use crate::prompt::{self, Prompt};
-use crate::screen::{MessageBar, Screen, StatusBar};
+use crate::screen::{refresh_screen, resize_screen, MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
 use std::path::{Path, PathBuf};
 use std::process::exit;
@@ -45,9 +45,15 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn confirm_exit(&mut self) -> Result<bool, Error> {
-        let mut prompt =
-            prompt::YesNo::new(TEXT_CONFIRM_KILL_BUFFER, &self.screen, &mut self.terminal);
-        let ret = prompt.confirm()?;
+        let mut prompt = prompt::YesNo::new(
+            &mut self.cursor,
+            &mut self.content,
+            &mut self.screen,
+            &mut self.status,
+            &mut self.message,
+            &mut self.terminal,
+        );
+        let ret = prompt.confirm(TEXT_CONFIRM_KILL_BUFFER)?;
         self.message.force_update();
         Ok(ret)
     }
@@ -107,16 +113,19 @@ impl<T: Terminal> Editor<T> {
             self.select.disable();
 
             let mut prompt = prompt::FindKeyword::new(
-                TEXT_MESSAGE_INPUT_KEYWORD,
                 &mut self.cursor,
-                &self.content,
+                &mut self.content,
                 &mut self.screen,
                 &mut self.status,
+                &mut self.message,
                 &mut self.terminal,
             );
 
-            ret = prompt.handle_events(row.map(|r| r.to_string_at(0)).as_deref())?;
-            moved = prompt.source() != prompt.current();
+            ret = prompt.handle_events(
+                TEXT_MESSAGE_INPUT_KEYWORD,
+                row.map(|r| r.to_string_at(0)).as_deref(),
+            )?;
+            moved = prompt.source() != prompt.cursor();
             src = prompt.source().as_coordinates();
         }
 
@@ -133,12 +142,20 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn goto(&mut self) -> Result<bool, Error> {
-        let mut prompt =
-            prompt::Input::new(TEXT_MESSAGE_INPUT_LINENO, &self.screen, &mut self.terminal);
+        let rows = self.content.rows();
 
-        while let Some(lineno) = prompt.handle_events(None)? {
+        let mut prompt = prompt::Input::new(
+            &mut self.cursor,
+            &mut self.content,
+            &mut self.screen,
+            &mut self.status,
+            &mut self.message,
+            &mut self.terminal,
+        );
+
+        while let Some(lineno) = prompt.handle_events(TEXT_MESSAGE_INPUT_LINENO, None)? {
             if let Ok(lineno) = lineno.parse::<usize>() {
-                if 0 < lineno && lineno <= self.content.rows() {
+                if 0 < lineno && lineno <= rows {
                     let cur = self.cursor.clone();
                     self.cursor.set_y(&self.content, lineno - 1);
                     self.message.force_update();
@@ -262,15 +279,15 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn init(&mut self) -> Result<(), Error> {
-        self.screen
-            .draw(&self.content, &self.select, &mut self.terminal)?;
-        self.content.clear_updated();
-        self.select.clear_updated();
-
-        self.status.set_cursor(&self.cursor);
-        self.status.draw(&mut self.terminal)?;
-
-        self.message.draw(&mut self.terminal)?;
+        refresh_screen(
+            &self.cursor,
+            &mut self.content,
+            &mut self.screen,
+            &mut self.select,
+            &mut self.status,
+            &mut self.message,
+            &mut self.terminal,
+        )?;
 
         self.terminal.set_cursor_position(0, 0)?;
 
@@ -281,15 +298,16 @@ impl<T: Terminal> Editor<T> {
         let render = self.cursor.render(&self.content);
 
         self.screen.fit(&self.content, &render);
-        self.screen
-            .draw(&self.content, &self.select, &mut self.terminal)?;
-        self.content.clear_updated();
-        self.select.clear_updated();
 
-        self.status.set_cursor(&render);
-        self.status.draw(&mut self.terminal)?;
-
-        self.message.draw(&mut self.terminal)?;
+        refresh_screen(
+            &render,
+            &mut self.content,
+            &mut self.screen,
+            &mut self.select,
+            &mut self.status,
+            &mut self.message,
+            &mut self.terminal,
+        )?;
 
         self.terminal.set_cursor_position(
             render.x() - self.screen.left(),
@@ -304,14 +322,17 @@ impl<T: Terminal> Editor<T> {
         self.select.disable();
 
         let mut prompt = prompt::Replace::new(
-            TEXT_MESSAGE_INPUT_REPLACE,
             &mut self.cursor,
             &mut self.content,
             &mut self.screen,
             &mut self.status,
+            &mut self.message,
             &mut self.terminal,
         );
-        prompt.replace(row.map(|r| r.to_string_at(0)).as_deref())?;
+        prompt.replace(
+            TEXT_MESSAGE_INPUT_REPLACE,
+            row.map(|r| r.to_string_at(0)).as_deref(),
+        )?;
 
         // Delete text decoration.
         self.screen.force_update();
@@ -321,15 +342,12 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn resize_screen(&mut self) -> Result<(), Error> {
-        let (width, height) = self.terminal.get_screen_size()?;
-
-        if self.screen.width() != width || self.screen.height() != height {
-            self.screen.resize(height, width);
-            self.status.resize(&self.screen);
-            self.message.resize(&self.screen);
-        }
-
-        Ok(())
+        resize_screen(
+            &mut self.screen,
+            &mut self.status,
+            &mut self.message,
+            &mut self.terminal,
+        )
     }
 
     pub fn save(&mut self) -> Result<(), Error> {
@@ -337,12 +355,15 @@ impl<T: Terminal> Editor<T> {
 
         if self.content.cached() {
             let mut prompt = prompt::Input::new(
-                TEXT_MESSAGE_INPUT_FILENAME,
-                &self.screen,
+                &mut self.cursor,
+                &mut self.content,
+                &mut self.screen,
+                &mut self.status,
+                &mut self.message,
                 &mut self.terminal,
             );
 
-            if let Some(filename) = prompt.handle_events(None)? {
+            if let Some(filename) = prompt.handle_events(TEXT_MESSAGE_INPUT_FILENAME, None)? {
                 let path = PathBuf::from(filename);
                 self.content.save_as(&path)?;
                 self.content.set_filename(&path);

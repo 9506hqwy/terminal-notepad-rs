@@ -205,6 +205,7 @@ impl Screen {
 
 // -----------------------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct StatusBar {
     y0: usize,
     width: usize,
@@ -273,6 +274,7 @@ impl StatusBar {
 
 // -----------------------------------------------------------------------------------------------
 
+#[derive(Clone)]
 pub struct MessageBar {
     y0: usize,
     width: usize,
@@ -309,6 +311,10 @@ impl MessageBar {
         self.updated |= true;
     }
 
+    pub fn message(&self) -> &Row {
+        &self.message
+    }
+
     pub fn resize(&mut self, screen: &Screen) {
         self.y0 = screen.height() + 1;
         self.width = screen.width();
@@ -317,11 +323,56 @@ impl MessageBar {
 
     pub fn set_fg_color(&mut self, color: Color) {
         self.fg_color = color;
+        self.updated |= true;
+    }
+
+    pub fn set_message(&mut self, message: Row) {
+        self.message = message;
+        self.updated |= true;
     }
 
     pub fn updated(&self) -> bool {
         self.updated
     }
+}
+
+// -----------------------------------------------------------------------------------------------
+
+pub fn refresh_screen<T: Terminal, P: AsCoordinates + Coordinates>(
+    cursor: &P,
+    content: &mut Buffer,
+    screen: &mut Screen,
+    select: &mut Select,
+    status: &mut StatusBar,
+    message: &mut MessageBar,
+    terminal: &mut T,
+) -> Result<(), Error> {
+    screen.draw(content, select, terminal)?;
+    content.clear_updated();
+    select.clear_updated();
+
+    status.set_cursor(cursor);
+    status.draw(terminal)?;
+
+    message.draw(terminal)?;
+    Ok(())
+}
+
+pub fn resize_screen<T: Terminal>(
+    screen: &mut Screen,
+    status: &mut StatusBar,
+    message: &mut MessageBar,
+    terminal: &mut T,
+) -> Result<(), Error> {
+    let (width, height) = terminal.get_screen_size()?;
+
+    if screen.width() != width || screen.height() != height {
+        screen.resize(height, width);
+        status.resize(screen);
+        message.resize(screen);
+    }
+
+    Ok(())
 }
 
 // -----------------------------------------------------------------------------------------------

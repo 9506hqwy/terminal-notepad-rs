@@ -2,8 +2,8 @@ use crate::buffer::{Buffer, Row};
 use crate::cursor::{Coordinates, Cursor};
 use crate::editor::Select;
 use crate::error::Error;
-use crate::key_event::{Event, KeyEvent, KeyModifier};
-use crate::screen::{MessageBar, Screen, StatusBar};
+use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
+use crate::screen::{refresh_screen, resize_screen, MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
 use crate::Color;
 use std::cmp::min;
@@ -20,16 +20,29 @@ pub trait Prompt<T: Terminal> {
         Ok(())
     }
 
-    fn handle_events(&mut self, value: Option<&str>) -> Result<Option<String>, Error> {
-        let mut prompt = MessageBar::new(self.screen(), self.message());
-        prompt.set_fg_color(Color::Cyan);
+    fn content(&self) -> &Buffer;
 
-        prompt.draw(self.terminal())?;
-        let (prompt_x, prompt_y) = self.terminal().get_cursor_position()?;
+    fn content_mut(&mut self) -> &mut Buffer;
+
+    fn cursor(&self) -> &Cursor;
+
+    fn cursor_mut(&mut self) -> &mut Cursor;
+
+    fn handle_events(
+        &mut self,
+        message: &str,
+        value: Option<&str>,
+    ) -> Result<Option<String>, Error> {
+        let mut prompt = self.message().clone();
+        prompt.set_fg_color(Color::Cyan);
+        prompt.set_message(Row::from(message));
+
+        prompt.draw(self.terminal_mut())?;
+        let (mut prompt_x, mut prompt_y) = self.terminal_mut().get_cursor_position()?;
 
         let mut chars = value.map(Row::from).unwrap_or_default();
         chars.truncate_width(self.screen().width() - prompt_x - 1);
-        self.terminal()
+        self.terminal_mut()
             .write(prompt_x, prompt_y, chars.column(), Color::White, false)?;
 
         let mut event = self.read_event_timeout()?;
@@ -40,40 +53,42 @@ pub trait Prompt<T: Terminal> {
                     match self.handle_input_event(chars.column())? {
                         KeyInput::Ok => false,
                         KeyInput::Continue => true,
-                        KeyInput::Cancel => return Ok(None),
+                        KeyInput::Cancel => return self.return_editor(None),
                     }
                 } else {
                     true
                 }
             }
             Event::Key(KeyEvent::Enter, _) => false,
-            Event::Key(KeyEvent::Escape, _) => return Ok(None),
+            Event::Key(KeyEvent::Escape, _) => return self.return_editor(None),
             Event::Key(KeyEvent::Char(ch), _) if !ch.is_ascii_control() => {
                 chars.insert(chars.len(), ch);
                 match self.handle_input_event(chars.column())? {
                     KeyInput::Ok => false,
                     KeyInput::Continue => true,
-                    KeyInput::Cancel => return Ok(None),
+                    KeyInput::Cancel => return self.return_editor(None),
                 }
             }
             Event::Key(..) => match self.handle_event(&event, chars.column())? {
                 KeyInput::Ok => false,
                 KeyInput::Continue => true,
-                KeyInput::Cancel => return Ok(None),
+                KeyInput::Cancel => return self.return_editor(None),
             },
-            // TODO: resize screen
-            _ => true,
+            Event::Window(WindowEvent::Resize) => {
+                (prompt_x, prompt_y) = self.resize_screen(&mut prompt, chars.column())?;
+                true
+            }
         } {
             self.callback_event(&event, &mut chars)?;
 
-            prompt.draw(self.terminal())?;
+            prompt.draw(self.terminal_mut())?;
             chars.truncate_width(self.screen().width() - prompt_x - 1);
-            self.terminal()
+            self.terminal_mut()
                 .write(prompt_x, prompt_y, chars.column(), Color::White, false)?;
             event = self.read_event_timeout()?;
         }
 
-        Ok(Some(chars.to_string_at(0)))
+        self.return_editor(Some(chars))
     }
 
     #[allow(unused_variables)]
@@ -86,44 +101,124 @@ pub trait Prompt<T: Terminal> {
         Ok(KeyInput::Continue)
     }
 
-    fn message(&self) -> &str;
+    fn message(&self) -> &MessageBar;
+
+    fn message_mut(&mut self) -> &mut MessageBar;
 
     fn read_event_timeout(&self) -> Result<Event, Error> {
         T::read_event_timeout()
     }
 
+    fn resize_screen(
+        &mut self,
+        prompt: &mut MessageBar,
+        chars: &[char],
+    ) -> Result<(usize, usize), Error>;
+
+    fn return_editor(&mut self, row: Option<Row>) -> Result<Option<String>, Error> {
+        let screen = self.screen().clone();
+        self.message_mut().resize(&screen);
+        Ok(row.map(|r| r.to_string_at(0)))
+    }
+
     fn screen(&self) -> &Screen;
 
-    fn terminal(&mut self) -> &mut T;
+    fn screen_mut(&mut self) -> &mut Screen;
+
+    fn status(&self) -> &StatusBar;
+
+    fn status_mut(&mut self) -> &mut StatusBar;
+
+    fn terminal_mut(&mut self) -> &mut T;
 }
 
 // -----------------------------------------------------------------------------------------------
 
 pub struct Input<'a, T: Terminal> {
-    message: String,
-    screen: &'a Screen,
+    cursor: &'a mut Cursor,
+    content: &'a mut Buffer,
+    screen: &'a mut Screen,
+    status: &'a mut StatusBar,
+    message: &'a mut MessageBar,
     terminal: &'a mut T,
 }
 
 impl<'a, T: Terminal> Prompt<T> for Input<'a, T> {
-    fn message(&self) -> &str {
-        self.message.as_str()
+    fn content(&self) -> &Buffer {
+        self.content
+    }
+
+    fn content_mut(&mut self) -> &mut Buffer {
+        self.content
+    }
+
+    fn cursor(&self) -> &Cursor {
+        self.cursor
+    }
+
+    fn cursor_mut(&mut self) -> &mut Cursor {
+        self.cursor
+    }
+
+    fn message(&self) -> &MessageBar {
+        self.message
+    }
+
+    fn message_mut(&mut self) -> &mut MessageBar {
+        self.message
+    }
+
+    fn resize_screen(
+        &mut self,
+        prompt: &mut MessageBar,
+        _: &[char],
+    ) -> Result<(usize, usize), Error> {
+        resize(
+            self.cursor,
+            self.content,
+            self.screen,
+            self.status,
+            prompt,
+            self.terminal,
+        )
     }
 
     fn screen(&self) -> &Screen {
         self.screen
     }
 
-    fn terminal(&mut self) -> &mut T {
+    fn screen_mut(&mut self) -> &mut Screen {
+        self.screen
+    }
+
+    fn status(&self) -> &StatusBar {
+        self.status
+    }
+
+    fn status_mut(&mut self) -> &mut StatusBar {
+        self.status
+    }
+
+    fn terminal_mut(&mut self) -> &mut T {
         self.terminal
     }
 }
 
 impl<'a, T: Terminal> Input<'a, T> {
-    pub fn new(message: &str, screen: &'a Screen, terminal: &'a mut T) -> Self {
+    pub fn new(
+        cursor: &'a mut Cursor,
+        content: &'a mut Buffer,
+        screen: &'a mut Screen,
+        status: &'a mut StatusBar,
+        message: &'a mut MessageBar,
+        terminal: &'a mut T,
+    ) -> Self {
         Input {
-            message: message.to_string(),
+            cursor,
+            content,
             screen,
+            status,
+            message,
             terminal,
         }
     }
@@ -132,36 +227,96 @@ impl<'a, T: Terminal> Input<'a, T> {
 // -----------------------------------------------------------------------------------------------
 
 pub struct YesNo<'a, T: Terminal> {
-    message: String,
-    screen: &'a Screen,
+    cursor: &'a mut Cursor,
+    content: &'a mut Buffer,
+    screen: &'a mut Screen,
+    status: &'a mut StatusBar,
+    message: &'a mut MessageBar,
     terminal: &'a mut T,
 }
 
 impl<'a, T: Terminal> Prompt<T> for YesNo<'a, T> {
-    fn message(&self) -> &str {
-        self.message.as_str()
+    fn content(&self) -> &Buffer {
+        self.content
+    }
+
+    fn content_mut(&mut self) -> &mut Buffer {
+        self.content
+    }
+
+    fn cursor(&self) -> &Cursor {
+        self.cursor
+    }
+
+    fn cursor_mut(&mut self) -> &mut Cursor {
+        self.cursor
+    }
+
+    fn message(&self) -> &MessageBar {
+        self.message
+    }
+
+    fn message_mut(&mut self) -> &mut MessageBar {
+        self.message
+    }
+
+    fn resize_screen(
+        &mut self,
+        prompt: &mut MessageBar,
+        _: &[char],
+    ) -> Result<(usize, usize), Error> {
+        resize(
+            self.cursor,
+            self.content,
+            self.screen,
+            self.status,
+            prompt,
+            self.terminal,
+        )
     }
 
     fn screen(&self) -> &Screen {
         self.screen
     }
 
-    fn terminal(&mut self) -> &mut T {
+    fn screen_mut(&mut self) -> &mut Screen {
+        self.screen
+    }
+
+    fn status(&self) -> &StatusBar {
+        self.status
+    }
+
+    fn status_mut(&mut self) -> &mut StatusBar {
+        self.status
+    }
+
+    fn terminal_mut(&mut self) -> &mut T {
         self.terminal
     }
 }
 
 impl<'a, T: Terminal> YesNo<'a, T> {
-    pub fn new(message: &str, screen: &'a Screen, terminal: &'a mut T) -> Self {
+    pub fn new(
+        cursor: &'a mut Cursor,
+        content: &'a mut Buffer,
+        screen: &'a mut Screen,
+        status: &'a mut StatusBar,
+        message: &'a mut MessageBar,
+        terminal: &'a mut T,
+    ) -> Self {
         YesNo {
-            message: message.to_string(),
+            cursor,
+            content,
             screen,
+            status,
+            message,
             terminal,
         }
     }
 
-    pub fn confirm(&mut self) -> Result<bool, Error> {
-        while let Some(yes_no) = self.handle_events(None)? {
+    pub fn confirm(&mut self, message: &str) -> Result<bool, Error> {
+        while let Some(yes_no) = self.handle_events(message, None)? {
             let answer = yes_no.to_ascii_lowercase();
 
             if answer == "y" || answer == "yes" {
@@ -184,55 +339,67 @@ impl<'a, T: Terminal> YesNo<'a, T> {
 // -----------------------------------------------------------------------------------------------
 
 pub struct FindKeyword<'a, T: Terminal> {
-    message: String,
-    content: &'a Buffer,
+    cursor: &'a mut Cursor,
+    content: &'a mut Buffer,
     screen: &'a mut Screen,
     status: &'a mut StatusBar,
+    message: &'a mut MessageBar,
     terminal: &'a mut T,
-    current: &'a mut Cursor,
     source: Cursor,
 }
 
 impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
-    fn message(&self) -> &str {
-        self.message.as_str()
+    fn content(&self) -> &Buffer {
+        self.content
+    }
+
+    fn content_mut(&mut self) -> &mut Buffer {
+        self.content
+    }
+
+    fn cursor(&self) -> &Cursor {
+        self.cursor
+    }
+
+    fn cursor_mut(&mut self) -> &mut Cursor {
+        self.cursor
     }
 
     fn handle_event(&mut self, event: &Event, chars: &[char]) -> Result<KeyInput, Error> {
         let keyword = Row::from(chars);
         match &event {
             Event::Key(KeyEvent::End, _) => {
-                self.current.move_to_xmax(self.content);
+                self.cursor.move_to_xmax(self.content);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::PageUp, _) => {
                 self.screen.move_up();
-                self.current.move_up_screen(self.content, self.screen);
+                self.cursor.move_up_screen(self.content, self.screen);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::PageDown, _) => {
                 self.screen.move_down(self.content);
-                self.current.move_down_screen(self.content, self.screen);
+                self.cursor.move_down_screen(self.content, self.screen);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::Home, _) => {
-                self.current.move_to_x0();
+                self.cursor.move_to_x0();
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::ArrowLeft, _) => {
-                self.current.move_left(self.content);
+                self.cursor.move_left(self.content);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::ArrowUp, _) => {
-                self.current.move_up(self.content);
+                self.cursor.move_up(self.content);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::ArrowRight, _) => {
-                self.current.move_right(self.content);
+                self.cursor.move_right(self.content);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::ArrowDown, _) => {
-                self.current.move_down(self.content);
+                self.cursor.move_down(self.content);
                 Ok(KeyInput::Ok)
             }
             Event::Key(KeyEvent::F3, KeyModifier::None) => {
@@ -250,7 +417,7 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
     fn handle_input_event(&mut self, chars: &[char]) -> Result<KeyInput, Error> {
         let keyword = Row::from(chars);
         if keyword.is_empty() {
-            self.current.set(self.content, &(0, 0));
+            self.cursor.set(self.content, &(0, 0));
             self.clear_screen()?;
         } else {
             self.incremental_keyword(&keyword)?;
@@ -259,38 +426,73 @@ impl<'a, T: Terminal> Prompt<T> for FindKeyword<'a, T> {
         Ok(KeyInput::Continue)
     }
 
+    fn message(&self) -> &MessageBar {
+        self.message
+    }
+
+    fn message_mut(&mut self) -> &mut MessageBar {
+        self.message
+    }
+
+    fn resize_screen(
+        &mut self,
+        prompt: &mut MessageBar,
+        chars: &[char],
+    ) -> Result<(usize, usize), Error> {
+        let pos = resize(
+            self.cursor,
+            self.content,
+            self.screen,
+            self.status,
+            prompt,
+            self.terminal,
+        )?;
+
+        self.incremental_keyword(&Row::from(chars))?;
+
+        Ok(pos)
+    }
+
     fn screen(&self) -> &Screen {
         self.screen
     }
 
-    fn terminal(&mut self) -> &mut T {
+    fn screen_mut(&mut self) -> &mut Screen {
+        self.screen
+    }
+
+    fn status(&self) -> &StatusBar {
+        self.status
+    }
+
+    fn status_mut(&mut self) -> &mut StatusBar {
+        self.status
+    }
+
+    fn terminal_mut(&mut self) -> &mut T {
         self.terminal
     }
 }
 
 impl<'a, T: Terminal> FindKeyword<'a, T> {
     pub fn new(
-        message: &str,
         cursor: &'a mut Cursor,
-        content: &'a Buffer,
+        content: &'a mut Buffer,
         screen: &'a mut Screen,
         status: &'a mut StatusBar,
+        message: &'a mut MessageBar,
         terminal: &'a mut T,
     ) -> Self {
         let source = cursor.clone();
         FindKeyword {
-            message: message.to_string(),
+            cursor,
             content,
             screen,
             status,
+            message,
             terminal,
-            current: cursor,
             source,
         }
-    }
-
-    pub fn current(&self) -> &Cursor {
-        self.current
     }
 
     pub fn source(&self) -> &Cursor {
@@ -299,12 +501,12 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
 
     fn clear_screen(&mut self) -> Result<(), Error> {
         draw_screen(self.content, self.screen, self.terminal)?;
-        draw_status(self.current, self.status, self.terminal)?;
+        draw_status(self.cursor, self.status, self.terminal)?;
         Ok(())
     }
 
     fn incremental_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
-        if let Some(at) = find_at(self.current, self.content, keyword) {
+        if let Some(at) = find_at(self.cursor, self.content, keyword) {
             self.mark_match(&at, keyword)?;
         } else {
             self.clear_screen()?;
@@ -313,10 +515,10 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
     }
 
     fn mark_match<P: Coordinates>(&mut self, cursor: &P, keyword: &Row) -> Result<(), Error> {
-        move_screen(self.current, cursor, self.content, self.screen, keyword);
+        move_screen(self.cursor, cursor, self.content, self.screen, keyword);
         self.clear_screen()?;
         set_text_attribute(
-            self.current,
+            self.cursor,
             self.content,
             self.screen,
             self.terminal,
@@ -326,7 +528,7 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
     }
 
     fn move_next_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
-        if let Some(at) = find_next_at(self.current, self.content, keyword) {
+        if let Some(at) = find_next_at(self.cursor, self.content, keyword) {
             self.mark_match(&at, keyword)?;
         }
 
@@ -334,7 +536,7 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
     }
 
     fn move_previous_keyword(&mut self, keyword: &Row) -> Result<(), Error> {
-        if let Some(at) = rfind_next_at(self.current, self.content, keyword) {
+        if let Some(at) = rfind_next_at(self.cursor, self.content, keyword) {
             self.mark_match(&at, keyword)?;
         }
 
@@ -345,17 +547,33 @@ impl<'a, T: Terminal> FindKeyword<'a, T> {
 // -----------------------------------------------------------------------------------------------
 
 pub struct Replace<'a, T: Terminal> {
-    message: String,
+    cursor: &'a mut Cursor,
     content: &'a mut Buffer,
     screen: &'a mut Screen,
     status: &'a mut StatusBar,
+    message: &'a mut MessageBar,
     terminal: &'a mut T,
-    current: &'a mut Cursor,
     source: Cursor,
     keywords: Option<(Row, Row)>,
 }
 
 impl<'a, T: Terminal> Prompt<T> for Replace<'a, T> {
+    fn content(&self) -> &Buffer {
+        self.content
+    }
+
+    fn content_mut(&mut self) -> &mut Buffer {
+        self.content
+    }
+
+    fn cursor(&self) -> &Cursor {
+        self.cursor
+    }
+
+    fn cursor_mut(&mut self) -> &mut Cursor {
+        self.cursor
+    }
+
     fn callback_event(&mut self, _: &Event, chars: &mut Row) -> Result<(), Error> {
         if self.keywords.is_some() {
             chars.clear();
@@ -364,16 +582,12 @@ impl<'a, T: Terminal> Prompt<T> for Replace<'a, T> {
         Ok(())
     }
 
-    fn message(&self) -> &str {
-        self.message.as_str()
-    }
-
     fn handle_input_event(&mut self, chars: &[char]) -> Result<KeyInput, Error> {
         if let Some((source, replaced)) = self.keywords.clone() {
             match chars.iter().collect::<String>().as_str() {
                 "y" => {
                     self.content
-                        .replace(self.current, source.len(), replaced.column());
+                        .replace(self.cursor, source.len(), replaced.column());
                 }
                 "n" => {}
                 _ => return Ok(KeyInput::Continue),
@@ -387,67 +601,107 @@ impl<'a, T: Terminal> Prompt<T> for Replace<'a, T> {
         Ok(KeyInput::Continue)
     }
 
+    fn message(&self) -> &MessageBar {
+        self.message
+    }
+
+    fn message_mut(&mut self) -> &mut MessageBar {
+        self.message
+    }
+
+    fn resize_screen(
+        &mut self,
+        prompt: &mut MessageBar,
+        _: &[char],
+    ) -> Result<(usize, usize), Error> {
+        let pos = resize(
+            self.cursor,
+            self.content,
+            self.screen,
+            self.status,
+            prompt,
+            self.terminal,
+        )?;
+
+        if let Some((source, _)) = self.keywords.as_ref() {
+            self.move_keyword_at_current(&source.clone())?;
+        }
+
+        Ok(pos)
+    }
+
     fn screen(&self) -> &Screen {
         self.screen
     }
 
-    fn terminal(&mut self) -> &mut T {
+    fn screen_mut(&mut self) -> &mut Screen {
+        self.screen
+    }
+
+    fn status(&self) -> &StatusBar {
+        self.status
+    }
+
+    fn status_mut(&mut self) -> &mut StatusBar {
+        self.status
+    }
+
+    fn terminal_mut(&mut self) -> &mut T {
         self.terminal
     }
 }
 
 impl<'a, T: Terminal> Replace<'a, T> {
     pub fn new(
-        message: &str,
         cursor: &'a mut Cursor,
         content: &'a mut Buffer,
         screen: &'a mut Screen,
         status: &'a mut StatusBar,
+        message: &'a mut MessageBar,
         terminal: &'a mut T,
     ) -> Self {
         let source = cursor.clone();
         Replace {
-            message: message.to_string(),
+            cursor,
             content,
             screen,
             status,
+            message,
             terminal,
-            current: cursor,
             source,
             keywords: None,
         }
     }
 
-    pub fn replace(&mut self, value: Option<&str>) -> Result<(), Error> {
+    pub fn replace(&mut self, message: &str, value: Option<&str>) -> Result<(), Error> {
         let mut esc_at = self.source.clone();
 
-        if let Some(source) = self.input(value)? {
-            self.message = format!("{} {} -> ", &self.message, &source.to_string_at(0));
-            if let Some(replaced) = self.input(None)? {
+        if let Some(source) = self.input(message, value)? {
+            let msg = format!("{} {} -> ", &message, &source.to_string_at(0));
+            if let Some(replaced) = self.input(&msg, None)? {
                 self.keywords = Some((source.clone(), replaced.clone()));
 
                 if self.move_keyword_at_current(&source)? {
-                    self.message =
-                        format!("{}{} (y/n): ", &self.message, &replaced.to_string_at(0));
-                    while self.handle_events(None)?.is_some() {}
+                    let msg = format!("{}{} (y/n): ", &msg, &replaced.to_string_at(0));
+                    while self.handle_events(&msg, None)?.is_some() {}
 
-                    esc_at = self.current.clone();
+                    esc_at = self.cursor.clone();
                 }
             }
         }
 
-        self.current.set(self.content, &esc_at);
+        self.cursor.set(self.content, &esc_at);
         Ok(())
     }
 
     fn clear_screen(&mut self) -> Result<(), Error> {
         draw_screen(self.content, self.screen, self.terminal)?;
-        draw_status(self.current, self.status, self.terminal)?;
+        draw_status(self.cursor, self.status, self.terminal)?;
         Ok(())
     }
 
-    fn input(&mut self, value: Option<&str>) -> Result<Option<Row>, Error> {
-        while let Some(value) = self.handle_events(value)? {
+    fn input(&mut self, message: &str, value: Option<&str>) -> Result<Option<Row>, Error> {
+        while let Some(value) = self.handle_events(message, value)? {
             if value.is_empty() {
                 continue;
             }
@@ -460,10 +714,10 @@ impl<'a, T: Terminal> Replace<'a, T> {
     }
 
     fn mark_match<P: Coordinates>(&mut self, cursor: &P, keyword: &Row) -> Result<(), Error> {
-        move_screen(self.current, cursor, self.content, self.screen, keyword);
+        move_screen(self.cursor, cursor, self.content, self.screen, keyword);
         self.clear_screen()?;
         set_text_attribute(
-            self.current,
+            self.cursor,
             self.content,
             self.screen,
             self.terminal,
@@ -482,7 +736,7 @@ impl<'a, T: Terminal> Replace<'a, T> {
     }
 
     fn move_keyword_at_current(&mut self, keyword: &Row) -> Result<bool, Error> {
-        if let Some(at) = find_at(self.current, self.content, keyword) {
+        if let Some(at) = find_at(self.cursor, self.content, keyword) {
             self.mark_match(&at, keyword)?;
             Ok(true)
         } else {
@@ -491,7 +745,7 @@ impl<'a, T: Terminal> Replace<'a, T> {
     }
 
     fn move_next_keyword(&mut self, keyword: &Row) -> Result<bool, Error> {
-        if let Some(at) = find_next_at(self.current, self.content, keyword) {
+        if let Some(at) = find_next_at(self.cursor, self.content, keyword) {
             self.mark_match(&at, keyword)?;
             Ok(true)
         } else {
@@ -549,13 +803,42 @@ fn move_screen<P: Coordinates>(
     cursor.set(content, at);
 
     let keyword_width = keyword.width();
-    if keyword_width < screen.width() {
+    if 0 < keyword_width && keyword_width < screen.width() {
         let mut last_ch = cursor.clone();
         last_ch.set_x(content, cursor.x() + keyword.len() - 1);
         screen.fit(content, &last_ch.render(content));
     }
 
     screen.fit(content, &cursor.render(content));
+}
+
+fn resize<T: Terminal>(
+    cursor: &Cursor,
+    content: &mut Buffer,
+    screen: &mut Screen,
+    status: &mut StatusBar,
+    message: &mut MessageBar,
+    terminal: &mut T,
+) -> Result<(usize, usize), Error> {
+    resize_screen(screen, status, message, terminal)?;
+
+    let render = cursor.render(content);
+
+    screen.fit(content, &render);
+
+    let mut select = Select::default();
+    refresh_screen(
+        &render,
+        content,
+        screen,
+        &mut select,
+        status,
+        message,
+        terminal,
+    )?;
+
+    message.draw(terminal)?;
+    terminal.get_cursor_position()
 }
 
 fn rfind_next_at(cursor: &Cursor, content: &Buffer, keyword: &Row) -> Option<(usize, usize)> {
