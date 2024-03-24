@@ -50,6 +50,10 @@ pub enum KeyEvent {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum KeyModifier {
     None,
+    AltLeft,
+    AltRight,
+    CtrlLeft,
+    CtrlRight,
     Shift,
 }
 

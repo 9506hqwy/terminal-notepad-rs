@@ -9,6 +9,7 @@ This crate provides a minimum text editor in windows command prompt.
 - Incremental text search.
 - Undo.
 - Select text area for copy or cut (Shift+Arrow).
+- Select rectangle text area for copy or cut (Ctrl+Arrow).
 
 ## Keyboard Shortcut
 

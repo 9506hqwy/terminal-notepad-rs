@@ -77,7 +77,7 @@ impl Screen {
                 }
 
                 if let Some((start, end)) = select.xrange(index) {
-                    let start_width = row.width_range(0..start);
+                    let start_width = row.width_range(0..min(row.len(), start));
                     let startx = max(start_width, self.left0);
 
                     let end_width = row.width_range(0..min(row.len(), end));

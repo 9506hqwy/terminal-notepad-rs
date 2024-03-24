@@ -1,5 +1,6 @@
 use crate::buffer::Row;
 use crate::cursor::Coordinates;
+use crate::editor::SelectMode;
 
 #[derive(Default)]
 pub struct History<P: Coordinates> {
@@ -36,7 +37,7 @@ pub enum Operation<P: Coordinates> {
     DeleteChars(P, Vec<Row>),
     DeleteRow(P, Row),
     InsertChar(P),
-    InsertChars(P, P),
+    InsertChars(P, P, SelectMode),
     InsertRow(P),
     Replace(P, usize, Row),
     ShrinkRow(P, Row),

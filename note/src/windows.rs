@@ -12,7 +12,8 @@ use windows::Win32::System::Console::{
     COMMON_LVB_LEADING_BYTE, COMMON_LVB_REVERSE_VIDEO, COMMON_LVB_TRAILING_BYTE,
     CONSOLE_CHARACTER_ATTRIBUTES, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO,
     CONSOLE_TEXTMODE_BUFFER, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
-    ENABLE_PROCESSED_OUTPUT, ENABLE_WRAP_AT_EOL_OUTPUT, INPUT_RECORD, KEY_EVENT, SHIFT_PRESSED,
+    ENABLE_PROCESSED_OUTPUT, ENABLE_WRAP_AT_EOL_OUTPUT, ENHANCED_KEY, INPUT_RECORD, KEY_EVENT,
+    LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, RIGHT_ALT_PRESSED, RIGHT_CTRL_PRESSED, SHIFT_PRESSED,
     SMALL_RECT, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, WINDOW_BUFFER_SIZE_EVENT,
 };
 
@@ -106,8 +107,12 @@ pub fn read_event() -> Result<Event, Error> {
         }
 
         // https://learn.microsoft.com/en-us/windows/console/key-event-record-str
-        let state = unsafe { buf[0].Event.KeyEvent.dwControlKeyState } & SHIFT_PRESSED;
+        let state = unsafe { buf[0].Event.KeyEvent.dwControlKeyState } & !ENHANCED_KEY;
         let modifier = match state {
+            LEFT_ALT_PRESSED => KeyModifier::AltLeft,
+            LEFT_CTRL_PRESSED => KeyModifier::CtrlLeft,
+            RIGHT_ALT_PRESSED => KeyModifier::AltRight,
+            RIGHT_CTRL_PRESSED => KeyModifier::CtrlRight,
             SHIFT_PRESSED => KeyModifier::Shift,
             _ => KeyModifier::None,
         };

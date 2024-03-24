@@ -5,6 +5,7 @@ use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
 use crate::prompt::{self, Prompt};
 use crate::screen::{refresh_screen, resize_screen, MessageBar, Screen, StatusBar};
 use crate::terminal::Terminal;
+use std::cmp::{max, min};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
@@ -216,12 +217,12 @@ impl<T: Terminal> Editor<T> {
             }
             Event::Key(KeyEvent::Copy, _) => {
                 if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
-                    self.content.copy_pending(start..end);
+                    self.content.copy_pending(start..end, self.select.mode());
                 }
             }
             Event::Key(KeyEvent::Cut, _) => {
                 if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
-                    self.content.delete_chars(start, end);
+                    self.content.delete_chars(start, end, self.select.mode());
                     self.cursor.set(&self.content, start);
                 }
             }
@@ -381,7 +382,7 @@ impl<T: Terminal> Editor<T> {
 
     fn get_selected_text(&self) -> Option<Vec<Row>> {
         if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
-            self.content.get_range(start..end)
+            self.content.get_range(start..end, self.select.mode())
         } else {
             None
         }
@@ -389,11 +390,11 @@ impl<T: Terminal> Editor<T> {
 
     fn update_select(&mut self, event: Event) {
         if let Event::Key(e, m) = event {
-            if m == KeyModifier::Shift && row_moved(e) {
+            if selected_moved(m) && row_moved(e) {
                 if self.select.enabled {
                     self.select.set_end(&self.cursor);
                 } else {
-                    self.select.set_start(&self.cursor);
+                    self.select.set_start(&self.cursor, SelectMode::from(m));
                 }
             } else {
                 self.select.disable();
@@ -406,8 +407,27 @@ impl<T: Terminal> Editor<T> {
 
 // -----------------------------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum SelectMode {
+    #[default]
+    None,
+    Rectangle,
+}
+
+impl From<KeyModifier> for SelectMode {
+    fn from(value: KeyModifier) -> SelectMode {
+        match value {
+            KeyModifier::CtrlLeft => SelectMode::Rectangle,
+            _ => SelectMode::None,
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------------
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Select {
+    mode: SelectMode,
     range: Option<(Cursor, Cursor)>,
     previous: Option<Cursor>,
     enabled: bool,
@@ -423,6 +443,7 @@ impl Select {
         let cur = self.clone();
 
         if !self.enabled {
+            self.mode = SelectMode::None;
             self.range = None;
             self.previous = None;
         }
@@ -430,6 +451,10 @@ impl Select {
         self.enabled = false;
 
         self.updated |= cur != *self;
+    }
+
+    pub fn mode(&self) -> SelectMode {
+        self.mode
     }
 
     pub fn enabled(&self) -> bool {
@@ -479,9 +504,10 @@ impl Select {
         self.updated |= cur != *self;
     }
 
-    pub fn set_start(&mut self, start: &Cursor) {
+    pub fn set_start(&mut self, start: &Cursor, mode: SelectMode) {
         let cur = self.clone();
 
+        self.mode = mode;
         self.previous = None;
         self.range = Some((start.clone(), start.clone()));
         self.enabled = true;
@@ -517,6 +543,13 @@ impl Select {
             return None;
         }
 
+        match self.mode {
+            SelectMode::None => self.xrange_none(y),
+            SelectMode::Rectangle => self.xrange_rectangle(y),
+        }
+    }
+
+    fn xrange_none(&self, y: usize) -> Option<(usize, usize)> {
         match (self.start(), self.end()) {
             (Some(start), Some(end)) => {
                 if y < start.y() {
@@ -538,6 +571,21 @@ impl Select {
             _ => None,
         }
     }
+
+    fn xrange_rectangle(&self, y: usize) -> Option<(usize, usize)> {
+        match (self.start(), self.end()) {
+            (Some(start), Some(end)) => {
+                if start.y() <= y && y <= end.y() {
+                    let s = min(start.x(), end.x());
+                    let e = max(start.x(), end.x());
+                    Some((s, e))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------------
@@ -550,4 +598,8 @@ fn row_moved(key: KeyEvent) -> bool {
         || key == KeyEvent::End
         || key == KeyEvent::Home
         || key == KeyEvent::Char('\0')
+}
+
+fn selected_moved(key: KeyModifier) -> bool {
+    key == KeyModifier::CtrlLeft || key == KeyModifier::Shift
 }
