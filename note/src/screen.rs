@@ -52,7 +52,7 @@ impl Screen {
 
         let end = min(content.rows(), self.bottom() + 1);
         for index in self.top0..end {
-            if !self.updated && !content.row_updated(index) && !select.in_range(index) {
+            if !self.updated && !content.row_updated(index) && !select.changes(index) {
                 continue;
             }
 
@@ -76,17 +76,22 @@ impl Screen {
                     terminal.write(0, idx, buffer.column(), Color::White, false)?;
                 }
 
-                if select.enabled() && select.in_range(index) {
-                    if let (Some(start), Some(end)) = (select.start(), select.end()) {
-                        let start = row.width_range(0..start.x());
-                        let end = min(row.width_range(0..end.x()), self.right());
-                        let x = if start < self.left0 {
+                if let Some((start, end)) = select.xrange(index) {
+                    let start_width = row.width_range(0..start);
+                    let startx = max(start_width, self.left0);
+
+                    let end_width = row.width_range(0..min(row.len(), end));
+                    let endx = min(end_width, self.right() + 1);
+
+                    if startx <= endx {
+                        let x = if start_width < self.left0 {
                             0
                         } else {
-                            start - self.left0
+                            start_width - self.left0
                         };
-                        let width = min(end - max(start, self.left0), self.width);
-                        terminal.set_text_attribute(x, index, width)?;
+                        terminal.set_text_attribute(x, index, endx - startx)?;
+                    } else {
+                        // highlight area is left of 'self.left0'.
                     }
                 }
             }

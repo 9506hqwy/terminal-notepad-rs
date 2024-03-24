@@ -8,7 +8,7 @@ This crate provides a minimum text editor in windows command prompt.
 - New line code is CRLF only.
 - Incremental text search.
 - Undo.
-- Select text area for copy or cut (Shift+Arrow Left or Shift+Arrow right).
+- Select text area for copy or cut (Shift+Arrow).
 
 ## Keyboard Shortcut
 

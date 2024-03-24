@@ -109,7 +109,7 @@ impl<T: Terminal> Editor<T> {
         let moved;
         let src;
         {
-            let row = self.get_selected_text();
+            let row = self.get_selected_text().and_then(|s| s.first().cloned());
             self.select.disable();
 
             let mut prompt = prompt::FindKeyword::new(
@@ -192,19 +192,13 @@ impl<T: Terminal> Editor<T> {
                 self.cursor.move_to_x0();
             }
             Event::Key(KeyEvent::ArrowLeft, _) => {
-                if !self.select.enabled() || self.cursor.x() != 0 {
-                    self.cursor.move_left(&self.content);
-                }
+                self.cursor.move_left(&self.content);
             }
             Event::Key(KeyEvent::ArrowUp, _) => {
                 self.cursor.move_up(&self.content);
             }
             Event::Key(KeyEvent::ArrowRight, _) => {
-                if !self.select.enabled()
-                    || self.cursor.x() != self.content.row_char_len(&self.cursor)
-                {
-                    self.cursor.move_right(&self.content);
-                }
+                self.cursor.move_right(&self.content);
             }
             Event::Key(KeyEvent::ArrowDown, _) => {
                 self.cursor.move_down(&self.content);
@@ -227,8 +221,7 @@ impl<T: Terminal> Editor<T> {
             }
             Event::Key(KeyEvent::Cut, _) => {
                 if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
-                    let length = end.x() - start.x();
-                    self.content.delete_chars(start, length);
+                    self.content.delete_chars(start, end);
                     self.cursor.set(&self.content, start);
                 }
             }
@@ -245,9 +238,10 @@ impl<T: Terminal> Editor<T> {
                 self.save()?;
             }
             Event::Key(KeyEvent::Paste, _) => {
-                if let Some(row_len) = self.content.pending().map(|r| r.len()) {
-                    self.content.paste_pending(&self.cursor);
-                    self.cursor.set_x(&self.content, self.cursor.x() + row_len);
+                if self.content.pending().is_some() {
+                    if let Some(pos) = self.content.paste_pending(&self.cursor) {
+                        self.cursor.set(&self.content, &pos);
+                    }
                 }
             }
             Event::Key(KeyEvent::Replace, _) => self.replace()?,
@@ -318,7 +312,7 @@ impl<T: Terminal> Editor<T> {
     }
 
     pub fn replace(&mut self) -> Result<(), Error> {
-        let row = self.get_selected_text();
+        let row = self.get_selected_text().and_then(|s| s.first().cloned());
         self.select.disable();
 
         let mut prompt = prompt::Replace::new(
@@ -385,7 +379,7 @@ impl<T: Terminal> Editor<T> {
         &self.screen
     }
 
-    fn get_selected_text(&self) -> Option<Row> {
+    fn get_selected_text(&self) -> Option<Vec<Row>> {
         if let (Some(start), Some(end)) = (self.select.start(), self.select.end()) {
             self.content.get_range(start..end)
         } else {
@@ -395,7 +389,6 @@ impl<T: Terminal> Editor<T> {
 
     fn update_select(&mut self, event: Event) {
         if let Event::Key(e, m) = event {
-            // TODO: multi rows support.
             if m == KeyModifier::Shift && row_moved(e) {
                 if self.select.enabled {
                     self.select.set_end(&self.cursor);
@@ -416,6 +409,7 @@ impl<T: Terminal> Editor<T> {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Select {
     range: Option<(Cursor, Cursor)>,
+    previous: Option<Cursor>,
     enabled: bool,
     updated: bool,
 }
@@ -430,6 +424,7 @@ impl Select {
 
         if !self.enabled {
             self.range = None;
+            self.previous = None;
         }
 
         self.enabled = false;
@@ -446,7 +441,11 @@ impl Select {
             self.range.as_ref().map(|r| &r.0),
             self.range.as_ref().map(|r| &r.1),
         ) {
-            if s.x() < e.x() {
+            if s.y() < e.y() {
+                Some(e)
+            } else if e.y() < s.y() {
+                Some(s)
+            } else if s.x() < e.x() {
                 Some(e)
             } else {
                 Some(s)
@@ -456,9 +455,17 @@ impl Select {
         }
     }
 
-    pub fn in_range(&self, y: usize) -> bool {
-        match &self.range {
-            Some(range) => range.0.y() <= y && y <= range.1.y(),
+    pub fn changes(&self, y: usize) -> bool {
+        match (self.start(), self.end()) {
+            (Some(start), Some(end)) => {
+                if start.y() <= y && y <= end.y() {
+                    true
+                } else if let Some(prev) = &self.previous {
+                    prev.y() == y
+                } else {
+                    false
+                }
+            }
             _ => false,
         }
     }
@@ -466,6 +473,7 @@ impl Select {
     pub fn set_end(&mut self, end: &Cursor) {
         let cur = self.clone();
 
+        self.previous = self.range.as_ref().map(|r| r.1.clone());
         self.range.as_mut().unwrap().1 = end.clone();
 
         self.updated |= cur != *self;
@@ -474,6 +482,7 @@ impl Select {
     pub fn set_start(&mut self, start: &Cursor) {
         let cur = self.clone();
 
+        self.previous = None;
         self.range = Some((start.clone(), start.clone()));
         self.enabled = true;
 
@@ -485,7 +494,11 @@ impl Select {
             self.range.as_ref().map(|r| &r.0),
             self.range.as_ref().map(|r| &r.1),
         ) {
-            if s.x() < e.x() {
+            if s.y() < e.y() {
+                Some(s)
+            } else if e.y() < s.y() {
+                Some(e)
+            } else if s.x() < e.x() {
                 Some(s)
             } else {
                 Some(e)
@@ -498,13 +511,42 @@ impl Select {
     pub fn updated(&self) -> bool {
         self.updated
     }
+
+    pub fn xrange(&self, y: usize) -> Option<(usize, usize)> {
+        if !self.enabled {
+            return None;
+        }
+
+        match (self.start(), self.end()) {
+            (Some(start), Some(end)) => {
+                if y < start.y() {
+                    None
+                } else if y == start.y() {
+                    if start.y() == end.y() {
+                        Some((start.x(), end.x()))
+                    } else {
+                        Some((start.x(), usize::MAX))
+                    }
+                } else if end.y() == y {
+                    Some((0, end.x()))
+                } else if end.y() < y {
+                    None
+                } else {
+                    Some((0, usize::MAX))
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------------------------
 
 fn row_moved(key: KeyEvent) -> bool {
     key == KeyEvent::ArrowLeft
+        || key == KeyEvent::ArrowUp
         || key == KeyEvent::ArrowRight
+        || key == KeyEvent::ArrowDown
         || key == KeyEvent::End
         || key == KeyEvent::Home
         || key == KeyEvent::Char('\0')
