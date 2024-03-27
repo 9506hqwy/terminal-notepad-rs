@@ -196,13 +196,13 @@ impl<T: Terminal> Editor<T> {
                 self.cursor.move_left(&self.content);
             }
             Event::Key(KeyEvent::ArrowUp, _) => {
-                self.cursor.move_up(&self.content);
+                self.cursor.move_up_render(&self.content);
             }
             Event::Key(KeyEvent::ArrowRight, _) => {
                 self.cursor.move_right(&self.content);
             }
             Event::Key(KeyEvent::ArrowDown, _) => {
-                self.cursor.move_down(&self.content);
+                self.cursor.move_down_render(&self.content);
             }
             Event::Key(KeyEvent::Delete, _) => {
                 self.cursor.move_right(&self.content);

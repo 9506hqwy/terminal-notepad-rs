@@ -29,6 +29,18 @@ impl Cursor {
         cur != *self
     }
 
+    /// Move down a render row .
+    pub fn move_down_render(&mut self, content: &Buffer) -> bool {
+        let cur = self.clone();
+
+        self.move_down(content);
+
+        let (render, _) = cur.render(content);
+        self.move_render_to_x(content, render);
+
+        cur != *self
+    }
+
     /// Move down a screen height.
     pub fn move_down_screen(&mut self, content: &Buffer, screen: &Screen) -> bool {
         let cur = self.clone();
@@ -78,6 +90,18 @@ impl Cursor {
             self.y0 -= 1;
             self.move_to_xmax_ifoverflow(content);
         }
+
+        cur != *self
+    }
+
+    /// Move up a render row .
+    pub fn move_up_render(&mut self, content: &Buffer) -> bool {
+        let cur = self.clone();
+
+        self.move_up(content);
+
+        let (render, _) = cur.render(content);
+        self.move_render_to_x(content, render);
 
         cur != *self
     }
@@ -149,6 +173,22 @@ impl Cursor {
         self.y0 = y;
         self.move_to_ymax_ifoverflow(content);
         self.move_to_xmax_ifoverflow(content);
+
+        cur != *self
+    }
+
+    fn move_render_to_x(&mut self, content: &Buffer, render: usize) -> bool {
+        let cur = self.clone();
+
+        if let Some(row) = content.get(self.y0) {
+            while self.x0 < row.len() && row.width_range(0..self.x0) < render {
+                self.x0 += 1;
+            }
+
+            while 0 < self.x0 && self.x0 <= row.len() && render < row.width_range(0..self.x0) {
+                self.x0 -= 1;
+            }
+        }
 
         cur != *self
     }
@@ -264,6 +304,32 @@ mod tests {
 
         assert_eq!((0, 2), cur.as_coordinates());
         assert!(!moved);
+    }
+
+    #[test]
+    fn move_down_render_1() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd']);
+        buf.insert_row(&(0, 1), &['あ', 'い']);
+
+        let mut cur = Cursor::from((2, 0));
+        let moved = cur.move_down_render(&buf);
+
+        assert_eq!((1, 1), cur.as_coordinates());
+        assert!(moved);
+    }
+
+    #[test]
+    fn move_down_render_2() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['あ', 'い']);
+        buf.insert_row(&(0, 1), &['a', 'b', 'c', 'd']);
+
+        let mut cur = Cursor::from((1, 0));
+        let moved = cur.move_down_render(&buf);
+
+        assert_eq!((2, 1), cur.as_coordinates());
+        assert!(moved);
     }
 
     #[test]
@@ -432,6 +498,32 @@ mod tests {
 
         assert_eq!((0, 0), cur.as_coordinates());
         assert!(!moved);
+    }
+
+    #[test]
+    fn move_up_render_1() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b', 'c', 'd']);
+        buf.insert_row(&(0, 1), &['あ', 'い']);
+
+        let mut cur = Cursor::from((1, 1));
+        let moved = cur.move_up_render(&buf);
+
+        assert_eq!((2, 0), cur.as_coordinates());
+        assert!(moved);
+    }
+
+    #[test]
+    fn move_up_render_2() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['あ', 'い']);
+        buf.insert_row(&(0, 1), &['a', 'b', 'c', 'd']);
+
+        let mut cur = Cursor::from((2, 1));
+        let moved = cur.move_up_render(&buf);
+
+        assert_eq!((1, 0), cur.as_coordinates());
+        assert!(moved);
     }
 
     #[test]
