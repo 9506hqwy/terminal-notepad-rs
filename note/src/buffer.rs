@@ -616,16 +616,21 @@ impl Buffer {
         if let Some(rows) = self.rows.get(range.start.y()..range.end.y() + 1) {
             let start = min(range.start.x(), range.end.x());
             let end = max(range.start.x(), range.end.x());
+            let length = end - start;
 
             let mut rs = vec![];
             for row in rows {
                 if start < row.len() {
                     let startx = start;
                     let endx = min(row.len(), end);
-                    let r = &row.column()[startx..endx];
-                    rs.push(Row::from(r));
+                    let post = length - (endx - startx);
+                    let mut chars = row.column()[startx..endx].to_vec();
+                    let spaces = iter::repeat(' ').take(post).collect::<Vec<char>>();
+                    chars.extend_from_slice(&spaces);
+                    rs.push(Row::from(chars));
                 } else {
-                    rs.push(Row::default());
+                    let chars = iter::repeat(' ').take(length).collect::<Vec<char>>();
+                    rs.push(Row::from(chars));
                 }
             }
             Some(rs)
