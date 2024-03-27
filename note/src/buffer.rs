@@ -19,7 +19,7 @@ pub struct Buffer {
     cached: bool,
     updated: Vec<Range<usize>>,
     history: History<(usize, usize)>,
-    pending: Option<Vec<Row>>,
+    pending: Option<(Vec<Row>, SelectMode)>,
 }
 
 impl TryFrom<Option<&Path>> for Buffer {
@@ -76,7 +76,7 @@ impl Buffer {
     }
 
     pub fn copy_pending(&mut self, range: Range<&Cursor>, mode: SelectMode) {
-        self.pending = self.get_range(range, mode);
+        self.pending = self.get_range(range, mode).map(|r| (r, mode));
     }
 
     pub fn delete_row<P: Coordinates + AsCoordinates>(&mut self, at: &P) -> Option<Row> {
@@ -130,13 +130,10 @@ impl Buffer {
         mode: SelectMode,
     ) {
         if let Some(rows) = self.delete_chars_bypass(start, end, mode) {
-            // TODO: Add rectangle mode undo support.
-            if mode == SelectMode::None {
-                self.history.record(
-                    start.as_coordinates(),
-                    Operation::DeleteChars(start.as_coordinates(), rows),
-                );
-            }
+            self.history.record(
+                start.as_coordinates(),
+                Operation::DeleteChars(start.as_coordinates(), rows, mode),
+            );
         }
     }
 
@@ -156,7 +153,7 @@ impl Buffer {
         } else {
             self.cached = true;
             rs.reverse();
-            self.pending = Some(rs.clone());
+            self.pending = Some((rs.clone(), mode));
             if rs.len() == 1 {
                 // in row
                 self.updated.push(start.y()..start.y() + 1);
@@ -236,12 +233,12 @@ impl Buffer {
         &mut self,
         at: &P,
         rows: &[Row],
+        mode: SelectMode,
     ) -> Option<(usize, usize)> {
-        if let Some(end) = self.insert_chars_bypass(at, rows) {
+        if let Some(end) = self.insert_chars_bypass(at, rows, mode) {
             self.history.record(
                 at.as_coordinates(),
-                // TODO: Add rectangle mode support.
-                Operation::InsertChars(at.as_coordinates(), end, SelectMode::None),
+                Operation::InsertChars(at.as_coordinates(), end, mode),
             );
             Some(end)
         } else {
@@ -253,57 +250,27 @@ impl Buffer {
         &mut self,
         at: &P,
         rows: &[Row],
+        mode: SelectMode,
     ) -> Option<(usize, usize)> {
-        let mut end = at.as_coordinates();
-        let mut rest = Row::default();
+        let end = match mode {
+            SelectMode::None => self.insert_chars_none(at, rows),
+            SelectMode::Rectangle => self.insert_chars_rectangle(at, rows),
+        };
 
-        // first row
-        if let (Some(row), Some(first)) = (self.rows.get_mut(at.y()), rows.first()) {
-            if at.x() <= row.len() {
-                self.cached = true;
-                if 1 < rows.len() {
-                    rest = row.split_off(at.x());
-                    row.append(first.column());
-                } else {
-                    row.insert_slice(at.x(), first.column());
-                }
-                end = (at.x() + first.len(), at.y());
-            }
-        } else {
-            return None;
-        }
-
-        if 1 < rows.len() {
-            // first row + 1 .. last row - 1
-            if let Some(middles) = rows.get(1..rows.len() - 1) {
-                self.cached = true;
-                for (idx, middle) in middles.iter().enumerate() {
-                    let y = at.y() + idx + 1;
-                    self.insert_row_bypass(&(0, y), middle.column());
-                    end = (middle.len(), y);
-                }
-            }
-
-            // last row
-            if let Some(last) = rows.last() {
-                self.cached = true;
-                let y = at.y() + rows.len() - 1;
-                self.insert_row_bypass(&(0, y), last.column());
-                self.append_row_bypass(&(0, y), rest.column());
-                end = (last.len(), y);
-            }
-        }
-
-        if at.as_coordinates() == end {
-            None
-        } else {
-            if at.y() == end.y() {
-                // in row
-                self.updated.push(at.y()..end.y() + 1);
+        if let Some(end) = end {
+            if at.as_coordinates() == end {
+                None
             } else {
-                self.updated.push(at.y()..self.rows());
+                if at.y() == end.y() {
+                    // in row
+                    self.updated.push(at.y()..end.y() + 1);
+                } else {
+                    self.updated.push(at.y()..self.rows());
+                }
+                Some(end)
             }
-            Some(end)
+        } else {
+            None
         }
     }
 
@@ -381,15 +348,15 @@ impl Buffer {
         &mut self,
         at: &P,
     ) -> Option<(usize, usize)> {
-        if let Some(rows) = self.pending.clone() {
-            self.insert_chars(at, rows.as_slice())
+        if let Some((rows, mode)) = self.pending.clone() {
+            self.insert_chars(at, rows.as_slice(), mode)
         } else {
             None
         }
     }
 
     pub fn pending(&self) -> Option<&[Row]> {
-        self.pending.as_deref()
+        self.pending.as_ref().map(|p| p.0.as_slice())
     }
 
     pub fn save(&mut self) -> Result<(), Error> {
@@ -435,7 +402,7 @@ impl Buffer {
             self.cached = true;
             let removed = row.split_off(at.x());
             self.updated.push(at.y()..at.y() + 1);
-            self.pending = Some(vec![removed.clone()]);
+            self.pending = Some((vec![removed.clone()], SelectMode::None));
             Some(removed)
         } else {
             None
@@ -509,8 +476,8 @@ impl Buffer {
                     self.insert_char_bypass(&(cord.0 - 1, cord.1), ch);
                     cur
                 }
-                (cur, Operation::DeleteChars(cord, rows)) => {
-                    self.insert_chars_bypass(&cord, rows.as_slice());
+                (cur, Operation::DeleteChars(cord, rows, mode)) => {
+                    self.insert_chars_bypass(&cord, rows.as_slice(), mode);
                     cur
                 }
                 (cur, Operation::DeleteRow(cord, row)) => {
@@ -556,7 +523,7 @@ impl Buffer {
         !self.updated.is_empty()
     }
 
-    pub fn delete_chars_none<P: Coordinates + AsCoordinates>(
+    fn delete_chars_none<P: Coordinates + AsCoordinates>(
         &mut self,
         start: &P,
         end: &P,
@@ -599,7 +566,7 @@ impl Buffer {
         rs
     }
 
-    pub fn delete_chars_rectangle<P: Coordinates + AsCoordinates>(
+    fn delete_chars_rectangle<P: Coordinates + AsCoordinates>(
         &mut self,
         start: &P,
         end: &P,
@@ -665,6 +632,83 @@ impl Buffer {
         } else {
             None
         }
+    }
+
+    fn insert_chars_none<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        rows: &[Row],
+    ) -> Option<(usize, usize)> {
+        let mut end = at.as_coordinates();
+        let mut rest = Row::default();
+
+        // first row
+        if let (Some(row), Some(first)) = (self.rows.get_mut(at.y()), rows.first()) {
+            if at.x() <= row.len() {
+                self.cached = true;
+                if 1 < rows.len() {
+                    rest = row.split_off(at.x());
+                    row.append(first.column());
+                } else {
+                    row.insert_slice(at.x(), first.column());
+                }
+                end = (at.x() + first.len(), at.y());
+            }
+        } else {
+            return None;
+        }
+
+        if 1 < rows.len() {
+            // first row + 1 .. last row - 1
+            if let Some(middles) = rows.get(1..rows.len() - 1) {
+                self.cached = true;
+                for (idx, middle) in middles.iter().enumerate() {
+                    let y = at.y() + idx + 1;
+                    self.insert_row_bypass(&(0, y), middle.column());
+                    end = (middle.len(), y);
+                }
+            }
+
+            // last row
+            if let Some(last) = rows.last() {
+                self.cached = true;
+                let y = at.y() + rows.len() - 1;
+                self.insert_row_bypass(&(0, y), last.column());
+                self.append_row_bypass(&(0, y), rest.column());
+                end = (last.len(), y);
+            }
+        }
+
+        Some(end)
+    }
+
+    fn insert_chars_rectangle<P: Coordinates + AsCoordinates>(
+        &mut self,
+        at: &P,
+        rows: &[Row],
+    ) -> Option<(usize, usize)> {
+        let mut end = at.as_coordinates();
+
+        for (idx, row) in rows.iter().enumerate() {
+            if let Some(r) = self.rows.get_mut(idx + at.y()) {
+                if r.len() < at.x() {
+                    let space = at.x() - r.len();
+                    let mut chars = iter::repeat(' ').take(space).collect::<Vec<char>>();
+                    chars.extend_from_slice(row.column());
+                    r.append(&chars);
+                } else {
+                    r.insert_slice(at.x(), row.column());
+                }
+            } else {
+                let mut chars = iter::repeat(' ').take(at.x()).collect::<Vec<char>>();
+                chars.extend_from_slice(row.column());
+                self.insert_row_bypass(&(0, idx + at.y()), chars.as_slice());
+            }
+
+            end = (at.x() + row.len(), idx + at.y());
+        }
+
+        Some(end)
     }
 }
 
@@ -932,7 +976,7 @@ mod tests {
         let e = Cursor::from((1, 0));
         buf.copy_pending(&s..&e, SelectMode::None);
 
-        assert_eq!(&['a'], buf.pending.unwrap().first().unwrap().column());
+        assert_eq!(&['a'], buf.pending.unwrap().0.first().unwrap().column());
     }
 
     #[test]
@@ -946,8 +990,8 @@ mod tests {
         let e = Cursor::from((1, 1));
         buf.copy_pending(&s..&e, SelectMode::Rectangle);
 
-        assert_eq!(&['a'], buf.pending.as_ref().unwrap()[0].column());
-        assert_eq!(&['c'], buf.pending.as_ref().unwrap()[1].column());
+        assert_eq!(&['a'], buf.pending.as_ref().unwrap().0[0].column());
+        assert_eq!(&['c'], buf.pending.as_ref().unwrap().0[1].column());
     }
 
     #[test]
@@ -1145,7 +1189,7 @@ mod tests {
         assert_eq!(&['e'], buf.rows[2].column());
         assert!(buf.cached());
         assert!(buf.updated());
-        assert_eq!(0, buf.history.len());
+        assert_eq!(1, buf.history.len());
     }
 
     #[test]
@@ -1349,7 +1393,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(0, 0), &[Row::from("bc")]);
+        buf.insert_chars(&(0, 0), &[Row::from("bc")], SelectMode::None);
 
         assert_eq!(1, buf.rows.len());
         assert_eq!(&['b', 'c', 'a'], buf.rows[0].column());
@@ -1364,7 +1408,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(1, 0), &[Row::from("bc")]);
+        buf.insert_chars(&(1, 0), &[Row::from("bc")], SelectMode::None);
 
         assert_eq!(1, buf.rows.len());
         assert_eq!(&['a', 'b', 'c'], buf.rows[0].column());
@@ -1379,7 +1423,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(0, 0), &[Row::from("b"), Row::from("c")]);
+        buf.insert_chars(&(0, 0), &[Row::from("b"), Row::from("c")], SelectMode::None);
 
         assert_eq!(2, buf.rows.len());
         assert_eq!(&['b'], buf.rows[0].column());
@@ -1395,7 +1439,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(0, 0), &[Row::from(""), Row::from("c")]);
+        buf.insert_chars(&(0, 0), &[Row::from(""), Row::from("c")], SelectMode::None);
 
         assert_eq!(2, buf.rows.len());
         assert!(buf.rows[0].is_empty());
@@ -1411,7 +1455,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(1, 0), &[Row::from("b"), Row::from("c")]);
+        buf.insert_chars(&(1, 0), &[Row::from("b"), Row::from("c")], SelectMode::None);
 
         assert_eq!(2, buf.rows.len());
         assert_eq!(&['a', 'b'], buf.rows[0].column());
@@ -1427,7 +1471,7 @@ mod tests {
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(1, 0), &[Row::from("b"), Row::from("")]);
+        buf.insert_chars(&(1, 0), &[Row::from("b"), Row::from("")], SelectMode::None);
 
         assert_eq!(2, buf.rows.len());
         assert_eq!(&['a', 'b'], buf.rows[0].column());
@@ -1443,7 +1487,11 @@ mod tests {
         buf.insert_row(&(0, 0), &['a', 'b']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(1, 0), &[Row::from("c"), Row::from("d"), Row::from("e")]);
+        buf.insert_chars(
+            &(1, 0),
+            &[Row::from("c"), Row::from("d"), Row::from("e")],
+            SelectMode::None,
+        );
 
         assert_eq!(3, buf.rows.len());
         assert_eq!(&['a', 'c'], buf.rows[0].column());
@@ -1455,12 +1503,33 @@ mod tests {
     }
 
     #[test]
+    fn buffer_insert_chars_3row_rectangle() {
+        let mut buf = Buffer::default();
+        buf.insert_row(&(0, 0), &['a', 'b']);
+        init_screen(&mut buf);
+
+        buf.insert_chars(
+            &(1, 0),
+            &[Row::from("c"), Row::from("d"), Row::from("e")],
+            SelectMode::Rectangle,
+        );
+
+        assert_eq!(3, buf.rows.len());
+        assert_eq!(&['a', 'c', 'b'], buf.rows[0].column());
+        assert_eq!(&[' ', 'd'], buf.rows[1].column());
+        assert_eq!(&[' ', 'e'], buf.rows[2].column());
+        assert!(buf.cached());
+        assert!(buf.updated());
+        assert_eq!(1, buf.history.len());
+    }
+
+    #[test]
     fn buffer_insert_chars_xoverflow() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
         init_screen(&mut buf);
 
-        buf.insert_chars(&(2, 0), &[Row::from("bc")]);
+        buf.insert_chars(&(2, 0), &[Row::from("bc")], SelectMode::None);
 
         assert_eq!(1, buf.rows.len());
         assert_eq!(&['a'], buf.rows[0].column());
@@ -1582,7 +1651,7 @@ mod tests {
     fn buffer_paste_pending() {
         let mut buf = Buffer::default();
         buf.insert_row(&(0, 0), &['a']);
-        buf.pending = Some(vec![Row::from("b")]);
+        buf.pending = Some((vec![Row::from("b")], SelectMode::None));
         init_screen(&mut buf);
 
         buf.paste_pending(&(0, 0));

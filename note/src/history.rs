@@ -34,7 +34,7 @@ impl<P: Coordinates> History<P> {
 pub enum Operation<P: Coordinates> {
     Append(P),
     DeleteChar(P, char),
-    DeleteChars(P, Vec<Row>),
+    DeleteChars(P, Vec<Row>, SelectMode),
     DeleteRow(P, Row),
     InsertChar(P),
     InsertChars(P, P, SelectMode),
