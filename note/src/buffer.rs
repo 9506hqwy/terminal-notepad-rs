@@ -576,15 +576,20 @@ impl Buffer {
         if let Some(rows) = self.rows.get_mut(start.y()..end.y() + 1) {
             let startx = min(start.x(), end.x());
             let endx = max(start.x(), end.x());
+            let length = end.x() - start.x();
 
             for row in rows.iter_mut().rev() {
                 if startx < row.len() {
                     let endx = min(row.len(), endx);
-                    if let Some(r) = row.remove_range(startx..endx) {
+                    let post = length - (endx - startx);
+                    if let Some(mut r) = row.remove_range(startx..endx) {
+                        let spaces = iter::repeat(' ').take(post).collect::<Vec<char>>();
+                        r.extend_from_slice(&spaces);
                         rs.push(Row::from(r));
                     }
                 } else {
-                    rs.push(Row::default());
+                    let chars = iter::repeat(' ').take(length).collect::<Vec<char>>();
+                    rs.push(Row::from(chars));
                 }
             }
         }
