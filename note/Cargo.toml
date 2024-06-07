@@ -20,7 +20,7 @@ ProductName = "terminal-notepad-rs"
 winres = "0.1.12"
 
 [dependencies]
-unicode-width = "0.1.11"
+unicode-width = "0.1.13"
 
 [dependencies.windows]
 version = "0.54"
