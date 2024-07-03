@@ -23,7 +23,7 @@ winres = "0.1.12"
 unicode-width = "0.1.13"
 
 [dependencies.windows]
-version = "0.54"
+version = "0.57"
 features = [
     "Win32_Foundation",
     "Win32_Security",
