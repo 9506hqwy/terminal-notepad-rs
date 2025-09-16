@@ -5,7 +5,6 @@ use crate::history::{History, Operation};
 use std::cmp::{max, min};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::iter;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthChar;
@@ -583,12 +582,12 @@ impl Buffer {
                     let endx = min(row.len(), endx);
                     let post = length - (endx - startx);
                     if let Some(mut r) = row.remove_range(startx..endx) {
-                        let spaces = iter::repeat(' ').take(post).collect::<Vec<char>>();
+                        let spaces = std::iter::repeat_n(' ', post).collect::<Vec<char>>();
                         r.extend_from_slice(&spaces);
                         rs.push(Row::from(r));
                     }
                 } else {
-                    let chars = iter::repeat(' ').take(length).collect::<Vec<char>>();
+                    let chars = std::iter::repeat_n(' ', length).collect::<Vec<char>>();
                     rs.push(Row::from(chars));
                 }
             }
@@ -630,11 +629,11 @@ impl Buffer {
                     let endx = min(row.len(), end);
                     let post = length - (endx - startx);
                     let mut chars = row.column()[startx..endx].to_vec();
-                    let spaces = iter::repeat(' ').take(post).collect::<Vec<char>>();
+                    let spaces = std::iter::repeat_n(' ', post).collect::<Vec<char>>();
                     chars.extend_from_slice(&spaces);
                     rs.push(Row::from(chars));
                 } else {
-                    let chars = iter::repeat(' ').take(length).collect::<Vec<char>>();
+                    let chars = std::iter::repeat_n(' ', length).collect::<Vec<char>>();
                     rs.push(Row::from(chars));
                 }
             }
@@ -703,14 +702,14 @@ impl Buffer {
             if let Some(r) = self.rows.get_mut(idx + at.y()) {
                 if r.len() < at.x() {
                     let space = at.x() - r.len();
-                    let mut chars = iter::repeat(' ').take(space).collect::<Vec<char>>();
+                    let mut chars = std::iter::repeat_n(' ', space).collect::<Vec<char>>();
                     chars.extend_from_slice(row.column());
                     r.append(&chars);
                 } else {
                     r.insert_slice(at.x(), row.column());
                 }
             } else {
-                let mut chars = iter::repeat(' ').take(at.x()).collect::<Vec<char>>();
+                let mut chars = std::iter::repeat_n(' ', at.x()).collect::<Vec<char>>();
                 chars.extend_from_slice(row.column());
                 self.insert_row_bypass(&(0, idx + at.y()), chars.as_slice());
             }
@@ -917,9 +916,8 @@ impl Row {
         for &ch in &self.column {
             if ch == '\t' {
                 let next_tab_stop = TAB_STOP - (render.width() % TAB_STOP);
-                let spaces = iter::repeat(char::from(b' '))
-                    .take(next_tab_stop)
-                    .collect::<Vec<char>>();
+                let spaces =
+                    std::iter::repeat_n(char::from(b' '), next_tab_stop).collect::<Vec<char>>();
                 render.column.extend_from_slice(&spaces);
             } else {
                 render.column.push(ch)

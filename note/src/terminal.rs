@@ -1,7 +1,7 @@
+use crate::Color;
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier};
 use crate::windows;
-use crate::Color;
 use std::sync::mpsc::channel;
 use std::thread;
 use std::time::Duration;

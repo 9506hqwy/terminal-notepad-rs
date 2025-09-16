@@ -1,11 +1,11 @@
+use crate::Color;
 use crate::buffer::{Buffer, Row};
 use crate::cursor::{Coordinates, Cursor};
 use crate::editor::Select;
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
-use crate::screen::{refresh_screen, resize_screen, MessageBar, Screen, StatusBar};
+use crate::screen::{MessageBar, Screen, StatusBar, refresh_screen, resize_screen};
 use crate::terminal::Terminal;
-use crate::Color;
 use std::cmp::min;
 
 pub enum KeyInput {

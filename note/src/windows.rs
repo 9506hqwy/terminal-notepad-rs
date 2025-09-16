@@ -1,20 +1,21 @@
+use crate::Color;
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
-use crate::Color;
 use windows::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE};
 use windows::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
 use windows::Win32::System::Console::{
-    CreateConsoleScreenBuffer, FillConsoleOutputAttribute, FillConsoleOutputCharacterA,
-    GetConsoleMode, GetConsoleScreenBufferInfo, GetStdHandle, ReadConsoleInputW,
-    ScrollConsoleScreenBufferA, SetConsoleActiveScreenBuffer, SetConsoleCursorPosition,
-    SetConsoleMode, SetConsoleOutputCP, SetConsoleScreenBufferSize, SetConsoleTextAttribute,
-    SetStdHandle, WriteConsoleA, WriteConsoleOutputW, CHAR_INFO, CHAR_INFO_0,
-    COMMON_LVB_LEADING_BYTE, COMMON_LVB_REVERSE_VIDEO, COMMON_LVB_TRAILING_BYTE,
-    CONSOLE_CHARACTER_ATTRIBUTES, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO,
-    CONSOLE_TEXTMODE_BUFFER, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
-    ENABLE_PROCESSED_OUTPUT, ENABLE_WRAP_AT_EOL_OUTPUT, ENHANCED_KEY, INPUT_RECORD, KEY_EVENT,
-    LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, RIGHT_ALT_PRESSED, RIGHT_CTRL_PRESSED, SHIFT_PRESSED,
-    SMALL_RECT, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, WINDOW_BUFFER_SIZE_EVENT,
+    CHAR_INFO, CHAR_INFO_0, COMMON_LVB_LEADING_BYTE, COMMON_LVB_REVERSE_VIDEO,
+    COMMON_LVB_TRAILING_BYTE, CONSOLE_CHARACTER_ATTRIBUTES, CONSOLE_MODE,
+    CONSOLE_SCREEN_BUFFER_INFO, CONSOLE_TEXTMODE_BUFFER, COORD, CreateConsoleScreenBuffer,
+    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_PROCESSED_OUTPUT,
+    ENABLE_WRAP_AT_EOL_OUTPUT, ENHANCED_KEY, FillConsoleOutputAttribute,
+    FillConsoleOutputCharacterA, GetConsoleMode, GetConsoleScreenBufferInfo, GetStdHandle,
+    INPUT_RECORD, KEY_EVENT, LEFT_ALT_PRESSED, LEFT_CTRL_PRESSED, RIGHT_ALT_PRESSED,
+    RIGHT_CTRL_PRESSED, ReadConsoleInputW, SHIFT_PRESSED, SMALL_RECT, STD_INPUT_HANDLE,
+    STD_OUTPUT_HANDLE, ScrollConsoleScreenBufferA, SetConsoleActiveScreenBuffer,
+    SetConsoleCursorPosition, SetConsoleMode, SetConsoleOutputCP, SetConsoleScreenBufferSize,
+    SetConsoleTextAttribute, SetStdHandle, WINDOW_BUFFER_SIZE_EVENT, WriteConsoleA,
+    WriteConsoleOutputW,
 };
 
 pub fn alternate_screen_buffer() -> Result<HANDLE, Error> {

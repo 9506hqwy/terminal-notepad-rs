@@ -3,7 +3,7 @@ use crate::cursor::{AsCoordinates, Coordinates, Cursor};
 use crate::error::Error;
 use crate::key_event::{Event, KeyEvent, KeyModifier, WindowEvent};
 use crate::prompt::{self, Prompt};
-use crate::screen::{refresh_screen, resize_screen, MessageBar, Screen, StatusBar};
+use crate::screen::{MessageBar, Screen, StatusBar, refresh_screen, resize_screen};
 use crate::terminal::Terminal;
 use std::cmp::{max, min};
 use std::path::{Path, PathBuf};

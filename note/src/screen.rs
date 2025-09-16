@@ -1,9 +1,9 @@
+use crate::Color;
 use crate::buffer::{Buffer, Row};
 use crate::cursor::{AsCoordinates, Coordinates};
 use crate::editor::Select;
 use crate::error::Error;
 use crate::terminal::Terminal;
-use crate::Color;
 use std::cmp::{max, min};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -84,11 +84,7 @@ impl Screen {
                     let endx = min(end_width, self.right() + 1);
 
                     if startx <= endx {
-                        let x = if start_width < self.left0 {
-                            0
-                        } else {
-                            start_width - self.left0
-                        };
+                        let x = start_width.saturating_sub(self.left0);
                         terminal.set_text_attribute(x, index, endx - startx)?;
                     } else {
                         // highlight area is left of 'self.left0'.
@@ -172,11 +168,7 @@ impl Screen {
     pub fn move_up(&mut self) -> bool {
         let cur = self.clone();
 
-        self.top0 = if self.height < self.top0 {
-            self.top0 - self.height
-        } else {
-            0
-        };
+        self.top0 = self.top0.saturating_sub(self.height);
 
         self.updated |= cur != *self;
         cur != *self
